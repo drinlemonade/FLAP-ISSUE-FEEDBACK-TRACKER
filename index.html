@@ -1262,6 +1262,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       statsLevel: '等级', statsStatus: '状态',
       exported: '已导出 {n} 条记录',
       saveError: '保存失败：本地存储可能已满',
+      submitSuccess: '提交成功', submitFail: '提交失败，请检查后重试',
+      ok: '确定',
       cloudPassTitle: '访问口令', cloudPassHint: '本页数据由团队共享，请输入访问口令后继续。',
       cloudPassOk: '进入', cloudPassWrong: '口令不正确，请重试。',
       cloudOffline: '云端连接失败，已切换为本地模式。',
@@ -1338,6 +1340,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       statsLevel: 'Level', statsStatus: 'Status',
       exported: 'Exported {n} record(s)',
       saveError: 'Save failed: local storage may be full',
+      submitSuccess: 'Submitted successfully', submitFail: 'Submit failed — please check and retry',
+      ok: 'OK',
       cloudPassTitle: 'Access password', cloudPassHint: 'Data on this page is shared across the team. Enter the access password to continue.',
       cloudPassOk: 'Enter', cloudPassWrong: 'Incorrect password, please try again.',
       cloudOffline: 'Cloud connection failed — switched to local mode.',
@@ -1386,10 +1390,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
     });
   }
-  function safeSave(key, val) {
+  function safeSave(key, val, silent) {
     var ok = true;
     try { localStorage.setItem(key, JSON.stringify(val)); }
-    catch (e) { toast(t('saveError')); ok = false; }
+    catch (e) { if (!silent) toast(t('saveError')); ok = false; }
     cloudQueuePush(key); // 本地写成功与否都要推云端：本地满了正是需要云端的时候
     return ok;
   }
@@ -1498,6 +1502,21 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     }
     mask.querySelector('#cloud-pass-ok').addEventListener('click', submit);
     input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+  }
+
+  // 通用模态弹窗（OK 关闭）
+  function showAlert(msg) {
+    var mask = document.createElement('div');
+    mask.className = 'modal-mask show';
+    mask.innerHTML =
+      '<div class="modal" style="max-width:360px">' +
+        '<p style="font-size:14px;margin:8px 0 16px">' + escapeHtml(msg) + '</p>' +
+        '<div style="text-align:right"><button type="button" id="alert-ok" data-i18n="ok">确定</button></div>' +
+      '</div>';
+    document.body.appendChild(mask);
+    var btn = mask.querySelector('#alert-ok');
+    btn.addEventListener('click', function () { mask.remove(); });
+    mask.addEventListener('click', function (e) { if (e.target === mask) mask.remove(); });
   }
   // 用 RPC 校验口令：PostgREST 遇 RLS 拒绝时返回空集而非错误码，故必须走函数比对
   function cloudVerifyPass(cb) {
@@ -2235,11 +2254,24 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
           if (field !== 'status' && field !== 'level' && matchCardIssue(list[k], field, value)) { matched = list[k]; break; }
         }
         if (!matched) return; // 计数为 0 不跳转
+        // 同步 jumpField 到 state.filters（仅对有对应筛选项的字段生效）
+        var filterMap = { level:'level', status:'status', customer:'customer', type:'type', isdPic:'isdPic', iePic:'iePic' };
+        var fk = filterMap[field];
+        if (fk) {
+          state.filters = { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false };
+          state.filters[fk] = value;
+          safeSave(KEYS.filters, state.filters);
+        }
         // 切换到跟进视图并定位
         state.view = 'followup';
         var tabs = document.querySelectorAll('.view-tab');
         tabs.forEach(function (tab) { tab.classList.toggle('active', tab.getAttribute('data-view') === 'followup'); });
         render();
+        // 同步筛选控件 UI 值
+        var uiSync = [['f-customer','customer'],['f-type','type'],['f-level','level'],['f-status','status'],['f-ie-pic','iePic'],['f-isd-pic','isdPic']];
+        uiSync.forEach(function (p) { var el = document.getElementById(p[0]); if (el) el.value = state.filters[p[1]] || ''; });
+        var fkw = document.getElementById('f-keyword'); if (fkw) fkw.value = state.filters.keyword || '';
+        var fr = document.getElementById('f-hide-resolved'); if (fr) fr.checked = !!state.filters.hideResolved;
         // 等 DOM 渲染后再滚动 + 高亮
         setTimeout(function () {
           var row = document.querySelector('#followup-view tr[data-id="' + CSS.escape(matched.id) + '"]');
@@ -2906,9 +2938,12 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     });
     newFormAttachments = [];
     var aln = document.getElementById('attach-list-new'); if (aln) aln.innerHTML = '';
-    if (safeSave(KEYS.issues, state.issues)) {
+    if (safeSave(KEYS.issues, state.issues, true)) {
+      showAlert(t('submitSuccess'));
       render();
       resetForm();
+    } else {
+      showAlert(t('submitFail'));
     }
   });
 
@@ -4359,16 +4394,16 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var typeMap = {};
     var typeIdx = state.types.length;
     newRecords.forEach(function (r) {
-      if (r.module && !typeMap[r.module]) {
+      if (r.category && !typeMap[r.category]) {
         var existing = null;
         for (var j = 0; j < state.types.length; j++) {
-          if (state.types[j].name === r.module) { existing = state.types[j]; break; }
+          if (state.types[j].name === r.category) { existing = state.types[j]; break; }
         }
-        if (existing) typeMap[r.module] = existing.id;
+        if (existing) typeMap[r.category] = existing.id;
         else {
-          var tp = { id: uid(), name: r.module, color: COLOR_SWATCHES[typeIdx % COLOR_SWATCHES.length], sortOrder: typeIdx, translate: true };
+          var tp = { id: uid(), name: r.category, color: COLOR_SWATCHES[typeIdx % COLOR_SWATCHES.length], sortOrder: typeIdx, translate: true };
           state.types.push(tp);
-          typeMap[r.module] = tp.id;
+          typeMap[r.category] = tp.id;
           typeIdx++;
         }
       }
@@ -4380,7 +4415,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     newRecords.forEach(function (r, i) {
       var issue = {
         id: uid(), customer: r.system, description: r.detail, level: 'medium',
-        typeId: typeMap[r.module] || '',
+        typeId: typeMap[r.category] || '',
         occurredAt: new Date(now - (newRecords.length - i) * 60000).toISOString().slice(0, 16),
         status: 'wait-feedback', createdAt: now - (newRecords.length - i) * 60000, updatedAt: now - (newRecords.length - i) * 60000,
         remarks: r.statusRemark ? [{ id: uid(), content: r.statusRemark, createdAt: now }] : [],
