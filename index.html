@@ -2255,11 +2255,34 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         }
         if (!matched) return; // 计数为 0 不跳转
         // 同步 jumpField 到 state.filters（仅对有对应筛选项的字段生效）
-        var filterMap = { level:'level', status:'status', customer:'customer', type:'type', isdPic:'isdPic', iePic:'iePic' };
-        var fk = filterMap[field];
-        if (fk) {
+        // 部分字段需要「卡片值」→「筛选值」转换：卡片值常为显示名，筛选 select value 为 ID
+        var setFilter = null;
+        if (field === 'level' || field === 'customer') {
+          setFilter = { key: field, val: value };
+        } else if (field === 'typeId') {
+          // 卡片值是类型名，需要转成 type.id
+          var tpByName = state.types.find(function (t) { return t.name === value; });
+          if (tpByName) setFilter = { key: 'type', val: tpByName.id };
+        } else if (field === 'status') {
+          // 内置状态卡片的 jumpValue 已是状态 ID；自定义卡片可能填的是状态名，故先按 ID 命中，再按名称兜底
+          var stById = state.statuses.find(function (s) { return s.id === value; });
+          if (stById) setFilter = { key: 'status', val: stById.id };
+          else {
+            var stByName = state.statuses.find(function (s) { return s.name === value; });
+            if (stByName) setFilter = { key: 'status', val: stByName.id };
+          }
+        } else if (field === 'followUp.isdPic') {
+          setFilter = { key: 'isdPic', val: value };
+        } else if (field === 'followUp.iePic') {
+          setFilter = { key: 'iePic', val: value };
+        } else if (field === 'followUp.category' || field === 'followUp.module') {
+          // category/module 值如果匹配到类型名 → 映射到 type 筛选
+          var tpCat = state.types.find(function (t) { return t.name === value; });
+          if (tpCat) setFilter = { key: 'type', val: tpCat.id };
+        }
+        if (setFilter) {
           state.filters = { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false };
-          state.filters[fk] = value;
+          state.filters[setFilter.key] = setFilter.val;
           safeSave(KEYS.filters, state.filters);
         }
         // 切换到跟进视图并定位
@@ -2529,52 +2552,45 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
    * 渲染：下拉选项
    * ========================================================= */
   function renderSelectOptions() {
-    // 客户筛选（值用原始名，显示名随语言翻译）
+    // 客户筛选
     var fc = document.getElementById('f-customer');
-    var cur = fc.value;
     fc.innerHTML = '<option value="">' + escapeHtml(t('all')) + '</option>' +
       uniqueCustomers().map(function (c) { return '<option value="' + escapeHtml(c) + '">' + escapeHtml(trContent(c)) + '</option>'; }).join('');
-    fc.value = cur;
+    fc.value = state.filters.customer || '';
 
     // 类型筛选 + 表单类型
     var ft = document.getElementById('f-type');
-    var curT = ft.value;
     ft.innerHTML = '<option value="">' + escapeHtml(t('all')) + '</option>' +
       sortedTypes().map(function (tp) { return '<option value="' + tp.id + '">' + escapeHtml(typeName(tp)) + '</option>'; }).join('');
-    ft.value = curT;
+    ft.value = state.filters.type || '';
 
     var typeSel = document.getElementById('type');
-    var curTy = typeSel.value;
     typeSel.innerHTML = '<option value="">' + escapeHtml(t('typeEmpty')) + '</option>' +
       sortedTypes().map(function (tp) { return '<option value="' + tp.id + '">' + escapeHtml(typeName(tp)) + '</option>'; }).join('');
-    typeSel.value = curTy;
 
     // 状态筛选（新建表单不再有状态选择）
     var fs = document.getElementById('f-status');
-    var curS = fs.value;
     fs.innerHTML = '<option value="">' + escapeHtml(t('all')) + '</option>' +
       sortedStatuses().map(function (s) { return '<option value="' + s.id + '">' + escapeHtml(statusName(s)) + '</option>'; }).join('');
-    fs.value = curS;
+    fs.value = state.filters.status || '';
 
     // IE PIC 筛选
     var fie = document.getElementById('f-ie-pic');
-    var curIe = fie.value;
     var iePics = [];
     state.issues.forEach(function (i) { if (i.followUp && i.followUp.iePic) { if (iePics.indexOf(i.followUp.iePic) === -1) iePics.push(i.followUp.iePic); } });
     iePics.sort();
     fie.innerHTML = '<option value="">' + escapeHtml(t('all')) + '</option>' +
       iePics.map(function (v) { return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>'; }).join('');
-    fie.value = curIe;
+    fie.value = state.filters.iePic || '';
 
     // ISD PIC 筛选
     var fis = document.getElementById('f-isd-pic');
-    var curIs = fis.value;
     var isdPics = [];
     state.issues.forEach(function (i) { if (i.followUp && i.followUp.isdPic) { if (isdPics.indexOf(i.followUp.isdPic) === -1) isdPics.push(i.followUp.isdPic); } });
     isdPics.sort();
     fis.innerHTML = '<option value="">' + escapeHtml(t('all')) + '</option>' +
       isdPics.map(function (v) { return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>'; }).join('');
-    fis.value = curIs;
+    fis.value = state.filters.isdPic || '';
 
     // 客户 datalist 建议（始终用原始名，便于提交）
     var dl = document.getElementById('customer-suggest');
