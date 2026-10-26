@@ -813,9 +813,24 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
 }
 .toast.show { opacity: 1; }
 
+/* ============== 回到顶部 ============== */
+.back-to-top {
+  position: fixed; right: 22px; bottom: 24px; width: 42px; height: 42px;
+  border-radius: 50%; border: 1px solid var(--border-2); background: var(--card);
+  color: var(--text-2); font-size: 18px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; z-index: 210;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+  opacity: 0; visibility: hidden; transform: translateY(8px);
+  transition: opacity .18s, transform .18s, visibility .18s, background .12s, color .12s, border-color .12s;
+}
+.back-to-top.show { opacity: 1; visibility: visible; transform: none; }
+.back-to-top:hover { background: var(--brand-blue); color: #fff; border-color: var(--brand-blue); }
+.back-to-top:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: 2px; }
+
 /* ============== 响应式 ============== */
 @media (max-width: 640px) {
   body { padding: 16px 10px 48px; }
+  .back-to-top { right: 14px; bottom: 18px; width: 38px; height: 38px; }
   .topbar h1 { font-size: 18px; }
   .form-row, .form-row-3 { grid-template-columns: 1fr; gap: 0; }
   .field-datetime { grid-template-columns: 1fr; }
@@ -1127,6 +1142,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
 </div>
 
 <div class="toast" id="toast"></div>
+<button class="back-to-top" id="btn-back-to-top" title="回到顶部 / Back to top" aria-label="回到顶部 / Back to top">↑</button>
 
 <script>
 (function () {
@@ -4628,6 +4644,15 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     // 已配置 Supabase 时：先弹口令门禁，再拉远端数据；未配置则保持纯本地
     cloudStart();
   }
+  // 回到顶部：滚动超过一屏时出现
+  (function () {
+    var btn = document.getElementById('btn-back-to-top');
+    if (!btn) return;
+    function sync() { btn.classList.toggle('show', window.scrollY > 300); }
+    window.addEventListener('scroll', sync, { passive: true });
+    btn.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    sync();
+  })();
   init();
 })();
 </script>
