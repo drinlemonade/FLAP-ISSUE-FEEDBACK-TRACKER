@@ -1206,6 +1206,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       selectMode: '勾选删除', exitSelectMode: '退出选择', selectAll: '全选', selectNone: '取消全选',
       deleteSelected: '删除已选', deleteSelectedConfirm: '确定删除已选中的 {n} 条记录？',
       deletedN: '已删除 {n} 条记录', selectedCount: '已选 {n} 条',
+      localEmptyRestore: '检测到本地记录为空，已从云端重新拉取数据（未删除任何云端数据）。',
       addCard: '+ 新增看板', addCardTitle: '新增计数看板', cardLabel: '看板名称', cardField: '计数字段', cardValue: '匹配值',
       fieldCustomer: '工厂', fieldType: '类型', fieldLevel: '等级', fieldStatus: '状态',
       fieldModule: '模块', fieldCategory: '类别', fieldIsdPic: 'ISD PIC', fieldIePic: 'IE PIC',
@@ -1284,6 +1285,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       selectMode: 'Select to delete', exitSelectMode: 'Exit selection', selectAll: 'Select all', selectNone: 'Deselect all',
       deleteSelected: 'Delete selected', deleteSelectedConfirm: 'Delete {n} selected records?',
       deletedN: 'Deleted {n} records', selectedCount: '{n} selected',
+      localEmptyRestore: 'Local records were empty; data was reloaded from cloud (nothing was deleted in cloud).',
       addCard: '+ Add Card', addCardTitle: 'Add Count Card', cardLabel: 'Card Label', cardField: 'Count Field', cardValue: 'Match Value',
       fieldCustomer: 'Factory', fieldType: 'Type', fieldLevel: 'Level', fieldStatus: 'Status',
       fieldModule: 'Module', fieldCategory: 'Category', fieldIsdPic: 'ISD PIC', fieldIePic: 'IE PIC',
@@ -1417,6 +1419,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   var CLOUD_ATTACH_IDS = 'feedback-issues-cloud-attach-ids';
   var CLOUD_SNAP_STORE = 'feedback-issues-cloud-snap';
   var CLOUD_KV_SNAP_STORE = 'feedback-issues-cloud-kv-snap';
+  var CLOUD_DELETED_STORE = 'feedback-issues-cloud-deleted';
   var CLOUD_POLL_MS = 15000;
   var CLOUD_PUSH_DEBOUNCE_MS = 600;
 
@@ -1432,6 +1435,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     lastSync: 0,
     snap: {},          // issueId -> JSON（上次确认已同步的 data，附件只含元数据）
     kvSnap: {},        // localStorage key -> JSON
+    del: {},           // 明确的删除意图：issueId -> 时间戳（本地删除先入队，再由 cloudPush 软删云端）
     pushedAttach: {},  // 已上传到远端的附件 id
     pushTimer: null,
     pollTimer: null
@@ -1566,25 +1570,44 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       .then(function () {}, function () {}));
     return Promise.all(ops);
   }
+  // 明确的删除意图：入队 + 本地移除；云端只按队列软删除，绝不靠「本地缺失」推断删除
+  function cloudQueueDelete(ids) {
+    if (!ids || !ids.length) return;
+    var nowIso = new Date().toISOString();
+    ids.forEach(function (id) { cloud.del[id] = nowIso; });
+    var rm = {};
+    ids.forEach(function (id) { rm[id] = true; });
+    state.issues = state.issues.filter(function (i) { return !rm[i.id]; });
+    safeSave(KEYS.issues, state.issues);
+    try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
+    cloudQueuePush(KEYS.issues);
+  }
   function cloudPush() {
     if (!cloud.on || !cloud.booted) return Promise.resolve();
+    // 空库熔断：本地一条都没有、基线却有记录且没有待删除意图 → 判定为本地数据异常，只拉取不推送
+    if (state.issues.length === 0 && Object.keys(cloud.snap).length > 0 &&
+        Object.keys(cloud.del).length === 0) {
+      toast(t('localEmptyRestore'));
+      return cloudPullFull().then(function () { initData(); if (!isUserEditing()) render(); });
+    }
     var ops = [];
     var nowIso = new Date().toISOString();
 
-    var seen = {};
     state.issues.forEach(function (i) {
-      seen[i.id] = true;
       var slim = JSON.stringify(issueRowData(i));
       if (cloud.snap[i.id] !== slim) ops.push(cloudUpsertIssue(i, slim, nowIso));
     });
-    // 远端有、本地已删除 → 软删除（不物理删，便于排查）
-    Object.keys(cloud.snap).forEach(function (id) {
-      if (seen[id]) return;
+    // 只处理明确入队的删除（软删，不物理删，便于排查与回收站恢复）
+    Object.keys(cloud.del).forEach(function (id) {
       ops.push(cloudFetch('/issues?id=eq.' + encodeURIComponent(id), {
         method: 'PATCH',
         headers: { 'Prefer': 'return=minimal' },
         body: JSON.stringify({ deleted: true, updated_at: nowIso })
-      }).then(function () { delete cloud.snap[id]; }, function () {}));
+      }).then(function () {
+        delete cloud.del[id];
+        delete cloud.snap[id];
+        cloudPersistSnap();
+      }, function () {}));
     });
     // 共享配置
     CLOUD_KV_KEYS.forEach(function (key) {
@@ -1608,10 +1631,13 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function cloudMergeIssues(rows) {
     var changed = false;
     rows.forEach(function (r) {
+      // 已在删除队列里的记录：不再拉回本地，避免删除尚未推送成功时被"复活"
+      if (cloud.del[r.id]) { delete cloud.snap[r.id]; return; }
       var idx = state.issues.findIndex(function (x) { return x.id === r.id; });
       if (r.deleted) {
         if (idx !== -1) { state.issues.splice(idx, 1); changed = true; }
         delete cloud.snap[r.id];
+        delete cloud.del[r.id];
         return;
       }
       var remote = r.data || {};
@@ -1624,11 +1650,16 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         var keep = {};
         (local.attachments || []).forEach(function (a) { if (a.dataUrl) keep[a.id] = a.dataUrl; });
         (remote.attachments || []).forEach(function (a) { if (!a.dataUrl && keep[a.id]) a.dataUrl = keep[a.id]; });
+        // 内容与本地完全一致 → 不替换、不标记变更，避免无谓的整页重绘
+        var beforeSlim = JSON.stringify(issueRowData(local));
+        var afterSlim = JSON.stringify(issueRowData(remote));
+        cloud.snap[r.id] = afterSlim;
+        if (beforeSlim === afterSlim) return;
         state.issues[idx] = remote;
       } else {
         state.issues.push(remote);
+        cloud.snap[r.id] = JSON.stringify(issueRowData(remote));
       }
-      cloud.snap[r.id] = JSON.stringify(issueRowData(remote));
       changed = true;
     });
     return changed;
@@ -1668,6 +1699,20 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function cloudPersistSnap() {
     try { localStorage.setItem(CLOUD_SNAP_STORE, JSON.stringify(cloud.snap)); } catch (e) {}
     try { localStorage.setItem(CLOUD_KV_SNAP_STORE, JSON.stringify(cloud.kvSnap)); } catch (e) {}
+    try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
+  }
+  // 用户正在输入时推迟重绘：避免把未提交的下拉选择、单元格内容冲掉
+  function isUserEditing() {
+    if (state.editingId) return true;
+    var a = document.activeElement;
+    if (!a || !a.closest) return false;
+    if (a.closest('.fu-cell[data-fu]')) return true;
+    if (a.closest('#issue-form')) {
+      var c = document.getElementById('customer');
+      var d = document.getElementById('description');
+      return !!((c && c.value.trim()) || (d && d.value.trim()));
+    }
+    return false;
   }
   function cloudPullDelta() {
     if (!cloud.on || !cloud.booted || cloud.pulling) return Promise.resolve();
@@ -1683,7 +1728,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       cloudPersistIssues();
       cloudPersistSnap();
       cloud.lastSync = Date.now();
-      if (a || b) { initData(); render(); }
+      if (a || b) { initData(); if (!isUserEditing()) render(); }
     }).catch(function () {}).then(function () { cloud.pulling = false; });
   }
 
@@ -1726,6 +1771,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     cloud.pushedAttach = load(CLOUD_ATTACH_IDS, {}) || {};
     cloud.snap = load(CLOUD_SNAP_STORE, {}) || {};
     cloud.kvSnap = load(CLOUD_KV_SNAP_STORE, {}) || {};
+    cloud.del = load(CLOUD_DELETED_STORE, {}) || {};
     var saved = null;
     try { saved = sessionStorage.getItem(CLOUD_PASS_STORE); } catch (e) {}
     if (!saved) { cloudAskPass(function () { cloudBoot(); }); return; }
@@ -2102,6 +2148,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (field === 'typeId') {
       var tp = getTypeById(issue.typeId);
       val = tp ? tp.name : '';
+    } else if (field === 'followUp.category') {
+      // 「异常类型」与 Category 为同一字段：以 typeId 为准，历史数据回落到已存的 category 文本
+      var tpCat = getTypeById(issue.typeId);
+      val = tpCat ? tpCat.name : String((issue.followUp && issue.followUp.category) || '');
     } else if (field === 'status') {
       var st = getStatusById(issue.status);
       val = st ? st.name : '';
@@ -2564,9 +2614,13 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       sortedTypes().map(function (tp) { return '<option value="' + tp.id + '">' + escapeHtml(typeName(tp)) + '</option>'; }).join('');
     ft.value = state.filters.type || '';
 
+    // 表单「异常类型」：重建 option 后恢复用户当前选择，避免轮询重绘把已选类型清空
     var typeSel = document.getElementById('type');
+    var curType = typeSel.value;
     typeSel.innerHTML = '<option value="">' + escapeHtml(t('typeEmpty')) + '</option>' +
       sortedTypes().map(function (tp) { return '<option value="' + tp.id + '">' + escapeHtml(typeName(tp)) + '</option>'; }).join('');
+    if (curType) typeSel.value = curType;
+    if (typeSel.value !== curType) typeSel.value = '';
 
     // 状态筛选（新建表单不再有状态选择）
     var fs = document.getElementById('f-status');
@@ -2939,6 +2993,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       date = nowD.getFullYear() + '-' + pad(nowD.getMonth()+1) + '-' + pad(nowD.getDate());
       time = pad(nowD.getHours()) + ':' + pad(nowD.getMinutes());
     }
+    var typeObj = typeId ? getTypeById(typeId) : null;
     state.issues.unshift({
       id: uid(),
       customer: customer,
@@ -2950,7 +3005,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       createdAt: Date.now(),
       remarks: [],
       attachments: newFormAttachments.slice(),
-      followUp: { module:'', category:'', isdPic:'', iePic:'', ieRequirement:'', fsDate:'', fsStatus:'', devDate:'', devStatus:'', ftDate:'', ftStatus:'', deadline:'' }
+      followUp: { module:'', category: typeObj ? typeObj.name : '', isdPic:'', iePic:'', ieRequirement:'', fsDate:'', fsStatus:'', devDate:'', devStatus:'', ftDate:'', ftStatus:'', deadline:'' }
     });
     newFormAttachments = [];
     var aln = document.getElementById('attach-list-new'); if (aln) aln.innerHTML = '';
@@ -2994,8 +3049,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       render();
     } else if (action === 'delete') {
       if (window.confirm(t('deleteConfirm'))) {
-        state.issues.splice(idx, 1);
-        safeSave(KEYS.issues, state.issues);
+        cloudQueueDelete([id]);
         render();
       }
     } else if (action === 'cancel-edit') {
@@ -3067,6 +3121,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var oldStatus = issue.status;
     issue.status = card.querySelector('[data-edit="status"]').value;
     issue.typeId = typeId || null;
+    // Category 与「异常类型」同一字段：随类型选择同步写入，保证看板与导出一致
+    if (!issue.followUp) issue.followUp = {};
+    var typeObj = typeId ? getTypeById(typeId) : null;
+    issue.followUp.category = typeObj ? typeObj.name : '';
     var date = card.querySelector('[data-edit="date"]').value;
     var time = card.querySelector('[data-edit="time"]').value;
     issue.occurredAt = toISOish(date, time);
@@ -3098,6 +3156,18 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var oldVal = state.issues[idx].followUp[field];
     var oldHtml = state.issues[idx].followUp[htmlKey];
     var changed = false;
+    // 跟进表直接改 Category 时同步「异常类型」(typeId)，保证看板统计与列表一致
+    if (field === 'category') {
+      var tpMatch = null;
+      for (var ti = 0; ti < state.types.length; ti++) {
+        if (String(state.types[ti].name).toLowerCase() === val.toLowerCase()) { tpMatch = state.types[ti]; break; }
+      }
+      var wantTypeId = tpMatch ? tpMatch.id : null;
+      if ((state.issues[idx].typeId || null) !== wantTypeId) {
+        state.issues[idx].typeId = wantTypeId;
+        changed = true;
+      }
+    }
     if (oldVal !== val) {
       state.issues[idx].followUp[field] = val;
       changed = true;
@@ -3111,6 +3181,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (changed) {
       state.issues[idx].updatedAt = Date.now();
       safeSave(KEYS.issues, state.issues);
+      if (field === 'category') renderStats(); // 类型/分类变更后立即刷新看板计数
     }
     // Req8: 隐藏格式工具条（延迟，避免点击工具条按钮时误触）
     setTimeout(function () {
@@ -4467,10 +4538,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var filtered = getFiltered();
     if (filtered.length === 0) { toast(t('noFiltered')); return; }
     if (!confirm(t('deleteFilteredConfirm').replace('{n}', filtered.length))) return;
-    var ids = {};
-    filtered.forEach(function (i) { ids[i.id] = true; });
-    state.issues = state.issues.filter(function (i) { return !ids[i.id]; });
-    safeSave(KEYS.issues, state.issues);
+    cloudQueueDelete(filtered.map(function (i) { return i.id; }));
     document.getElementById('modal-batch-delete').classList.remove('show');
     render();
     toast(t('deletedN').replace('{n}', filtered.length));
@@ -4490,10 +4558,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var selectedIds = Object.keys(state.selSet).filter(function (k) { return state.selSet[k]; });
     if (selectedIds.length === 0) return;
     if (!confirm(t('deleteSelectedConfirm').replace('{n}', selectedIds.length))) return;
-    var ids = {};
-    selectedIds.forEach(function (id) { ids[id] = true; });
-    state.issues = state.issues.filter(function (i) { return !ids[i.id]; });
-    safeSave(KEYS.issues, state.issues);
+    cloudQueueDelete(selectedIds);
     state.selSet = {};
     render();
     toast(t('deletedN').replace('{n}', selectedIds.length));
