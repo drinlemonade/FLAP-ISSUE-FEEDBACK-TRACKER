@@ -2850,9 +2850,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       var ii = state.issues.findIndex(function (x) { return x.id === fid; });
       if (ii === -1) return;
       var fobj = state.issues[ii].followUp || {};
-      var htmlKey = ff + '_html';
-      if (fobj[htmlKey]) {
-        cell.innerHTML = fobj[htmlKey];
+      if (hasFuHtml(fobj, ff)) {
+        cell.innerHTML = fobj[ff + '_html'];
       }
       var styleKey = ff + '_style';
       if (fobj[styleKey]) {
@@ -3438,15 +3437,24 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function plField(label, valHtml) {
     return '<div class="pl-field"><span class="pl-label">' + label + '</span>' + valHtml + '</div>';
   }
+  // _html 是否为「有效格式内容」：空串、只有 <br>、只有 &nbsp;、纯空白都不算
+  function hasFuHtml(fu, ff) {
+    var h = fu[ff + '_html'];
+    return !!(h && String(h).replace(/<br\s*\/?>|&nbsp;|\s/gi, '') !== '');
+  }
+  // 两个视图统一取值，避免播放器与跟进表渲染分叉
+  function fuCellHtml(fu, ff) {
+    return hasFuHtml(fu, ff) ? fu[ff + '_html'] : escapeHtml(fu[ff] || '');
+  }
   // 可编辑单元格：复用 fu-cell 契约（data-fu + contenteditable），支持 _html 格式与 _style 样式回放
   function plCell(ff, fu) {
     var style = fu[ff + '_style'] || '';
-    var content = fu[ff + '_html'] != null ? fu[ff + '_html'] : escapeHtml(fu[ff] || '');
+    var content = fuCellHtml(fu, ff);
     return '<div class="pl-val fu-cell" data-fu="' + ff + '" contenteditable="true"' + (style ? ' style="' + style + '"' : '') + '>' + content + '</div>';
   }
   function plPairCell(ff, fu) {
     var style = fu[ff + '_style'] || '';
-    var content = fu[ff + '_html'] != null ? fu[ff + '_html'] : escapeHtml(fu[ff] || '');
+    var content = fuCellHtml(fu, ff);
     return '<div class="pl-val fu-cell" data-fu="' + ff + '" contenteditable="true" style="flex:1;' + style + '">' + content + '</div>';
   }
   function plSel(ff, fu) {
@@ -3454,8 +3462,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     // 播放器内下拉字体保持默认黑色，不加状态颜色
     return '<select data-fu="' + ff + '">' + fuStatusOptions(v) + '</select>';
   }
-  function plDateField(label, ff, fu) {
-    return plField(label, '<div class="pl-pair">' + plPairCell(ff, fu) + plSel(ff + 'Status', fu) + '</div>');
+  function plDateField(label, dateField, statusField, fu) {
+    return plField(label, '<div class="pl-pair">' + plPairCell(dateField, fu) + plSel(statusField, fu) + '</div>');
   }
 
   /* =========================================================
@@ -3634,10 +3642,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
           plField(cols.isdPic, plCell('isdPic', fu)) +
           plField(cols.iePic, plCell('iePic', fu)) +
           plField(cols.ieReq, '<div class="pl-pair">' + plPairCell('ieRequirement', fu) + plSel('ieReqStatus', fu) + '</div>') +
-          plDateField(cols.fs, 'fsDate', fu) +
-          plDateField(cols.dev, 'devDate', fu) +
-          plDateField(cols.ft, 'ftDate', fu) +
-          plDateField(cols.deadline, 'deadline', fu) +
+          plDateField(cols.fs, 'fsDate', 'fsStatus', fu) +
+          plDateField(cols.dev, 'devDate', 'devStatus', fu) +
+          plDateField(cols.ft, 'ftDate', 'ftStatus', fu) +
+          plDateField(cols.deadline, 'deadline', 'deadlineStatus', fu) +
         '</div>' +
         '<div class="pl-remarks">' +
           '<span class="pl-label">💬 ' + t('remarks') + ' (' + remarks.length + ')</span>' +
