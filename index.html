@@ -4273,7 +4273,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       var fu = i.followUp || {};
       var remarks = (i.remarks || []).map(function (r) { return '[' + formatTime(r.createdAt) + '] ' + r.content; }).join(' | ');
       return [
-        idx + 1, i.customer, tp ? tp.name : '', i.description,
+        idx + 1, i.customer, tp ? tp.name : '', descDisplay(i),
         t(i.level === 'low' ? 'levelLow' : i.level === 'medium' ? 'levelMedium' : 'levelHigh'),
         st ? st.name : '', formatTime(i.occurredAt), formatTime(i.createdAt),
         i.updatedAt ? formatTime(i.updatedAt) : '', remarks,
