@@ -842,6 +842,51 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   .header-divider { display: none; }
   .brand-header { flex-direction: column; align-items: flex-start; gap: 8px; }
 }
+  /* 多表格切换器 */
+  .board-switch { position: relative; }
+  .board-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 20px; font-weight: 700; color: var(--text-1); background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .board-btn:hover { background: var(--card); }
+  .board-caret { font-size: 12px; color: var(--text-2); }
+  .board-menu { position: absolute; left: 0; top: calc(100% + 6px); min-width: 240px; max-height: 70vh; overflow: auto; background: var(--card); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 6px; z-index: 120; }
+  .board-menu[hidden] { display: none; }
+  .board-menu-item { display: block; width: 100%; text-align: left; padding: 8px 10px; font-size: 13px; color: var(--text-1); background: none; border: none; border-radius: 6px; cursor: pointer; }
+  .board-menu-item:hover { background: rgba(127,127,127,.12); }
+  .board-menu-item.active { color: var(--brand-blue); font-weight: 600; }
+  .board-menu-item.danger { color: var(--danger); }
+  .board-menu-item.danger:hover { background: var(--danger-bg); }
+  .board-menu-sep { height: 1px; background: var(--border-2); margin: 6px 4px; }
+
+  /* 参数设置下拉（替代三个平铺按钮） */
+  .settings-dropdown { position: relative; display: inline-flex; }
+  .settings-menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 170px; background: var(--card); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 6px; z-index: 120; }
+  .settings-menu[hidden] { display: none; }
+  .settings-item { display: block; width: 100%; text-align: left; padding: 8px 10px; font-size: 13px; font-family: inherit; color: var(--text-1); background: none; border: none; border-radius: 6px; cursor: pointer; }
+  .settings-item:hover { background: rgba(127,127,127,.12); color: var(--brand-blue); }
+  .settings-dropdown .caret { font-size: 11px; color: var(--text-2); margin-left: 2px; }
+
+  /* 回收站入口 */
+  .btn-trash { display: inline-flex; align-items: center; gap: 6px; }
+  .btn-trash svg { width: 15px; height: 15px; flex: 0 0 auto; }
+  .btn-trash .trash-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--brand-red); color: #fff; font-size: 11px; line-height: 18px; font-weight: 700; text-align: center; }
+  .btn-trash .trash-badge[hidden] { display: none; }
+
+  /* 撤回提示条（删除后 5 秒内可撤回） */
+  .undo-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; background: var(--ind-bg); color: #fff; padding: 10px 14px 10px 18px; border-radius: 8px; font-size: 13px; z-index: 260; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
+  .undo-toast .undo-btn { background: none; border: 1px solid rgba(255,255,255,.45); color: #fff; font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+  .undo-toast .undo-btn:hover { background: rgba(255,255,255,.16); border-color: #fff; }
+  .undo-toast .undo-sec { font-size: 11px; color: rgba(255,255,255,.6); }
+
+  /* 回收站面板 */
+  .trash-modal { max-width: 760px; width: 92vw; }
+  .trash-list { max-height: 52vh; overflow: auto; border: 1px solid var(--border-2); border-radius: 8px; margin-top: 10px; }
+  .trash-row { display: grid; grid-template-columns: 1.2fr 2fr .9fr 1fr 74px; gap: 8px; align-items: center; padding: 9px 10px; font-size: 12.5px; border-top: 1px solid var(--border); }
+  .trash-row:first-child { border-top: none; }
+  .trash-row.head { background: var(--card-2); font-weight: 600; color: var(--text-2); font-size: 12px; position: sticky; top: 0; }
+  .trash-row .t-cust { font-weight: 600; color: var(--text-1); }
+  .trash-row .t-desc { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trash-row .t-time { color: var(--text-3); font-size: 11.5px; }
+  .trash-empty { padding: 28px 12px; text-align: center; color: var(--text-3); font-size: 13px; }
+  .trash-note { font-size: 11.5px; color: var(--text-3); margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -863,15 +908,38 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
 
   <!-- 顶栏 -->
   <div class="topbar">
-    <h1 data-i18n="appTitle">工厂反馈异常记录台</h1>
+    <div class="board-switch">
+      <button class="board-btn" id="btn-board-switch">
+        <span id="board-current-name">工厂反馈异常记录台</span><span class="board-caret">▾</span>
+      </button>
+      <div class="board-menu" id="board-menu" hidden>
+        <div id="board-menu-list"></div>
+        <div class="board-menu-sep"></div>
+        <button class="board-menu-item" id="btn-board-new" data-i18n="boardNew">新建表格</button>
+        <button class="board-menu-item" id="btn-board-rename" data-i18n="boardRename">重命名当前表格</button>
+        <button class="board-menu-item danger" id="btn-board-delete" data-i18n="boardDelete">删除当前表格</button>
+      </div>
+    </div>
     <div class="actions">
       <button class="btn btn-sm btn-excel" id="btn-export" data-i18n="export">导出 CSV</button>
-      <button class="btn btn-sm" id="btn-status-settings" data-i18n="statusSettings">状态设置</button>
-      <button class="btn btn-sm" id="btn-type-settings" data-i18n="typeSettings">类型设置</button>
-      <button class="btn btn-sm" id="btn-fu-status-settings" data-i18n="fuStatusSettings">跟进状态设置</button>
+      <div class="settings-dropdown">
+        <button class="btn btn-sm" id="btn-settings-menu" aria-haspopup="true" aria-expanded="false">
+          <span data-i18n="settingsMenu">参数设置</span> <span class="caret">▾</span>
+        </button>
+        <div class="settings-menu" id="settings-menu" hidden>
+          <button class="settings-item" id="btn-status-settings" data-i18n="statusSettings">状态设置</button>
+          <button class="settings-item" id="btn-type-settings" data-i18n="typeSettings">类型设置</button>
+          <button class="settings-item" id="btn-fu-status-settings" data-i18n="fuStatusSettings">跟进状态设置</button>
+        </div>
+      </div>
       <button class="btn btn-sm" id="btn-import-ppt" data-i18n="importPpt" style="background:var(--accent-gradient);color:#fff;border:none">导入PPT数据</button>
       <input type="file" id="ppt-file-input" accept=".pptx" style="display:none">
       <button class="btn btn-sm btn-danger" id="btn-batch-delete" data-i18n="batchDelete">批量删除</button>
+      <button class="btn btn-sm btn-trash" id="btn-trash-open" title="回收站 / Recycle Bin">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v6M14 10v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-i18n="trashTitle">回收站</span>
+        <span class="trash-badge" id="trash-badge" hidden>0</span>
+      </button>
       <select class="btn btn-sm" id="theme-select" title="Theme">
         <option value="light" data-i18n="themeLight">浅色</option>
         <option value="dark" data-i18n="themeDark">深色</option>
@@ -880,7 +948,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       <button class="btn btn-sm" id="btn-lang">EN</button>
     </div>
   </div>
-  <p class="subtitle" data-i18n="subtitle">快速记录工厂反馈的系统异常，数据仅保存在本机浏览器中，刷新不丢失。</p>
+  <p class="subtitle" data-i18n="subtitle">快速记录工厂反馈的系统异常，数据已保存在服务器云端，刷新不丢失。</p>
 
   <!-- 表单 -->
   <section class="card form-card">
@@ -1155,7 +1223,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   /* =========================================================
    * 常量与 i18n
    * ========================================================= */
-  var KEYS = {
+  var BASE_KEYS = {
     issues: 'feedback-issues',
     statuses: 'feedback-issues-statuses',
     fuStatuses: 'feedback-issues-fu-statuses',
@@ -1170,8 +1238,50 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     customCards: 'feedback-issues-custom-cards',
     lastWaitCount: 'feedback-issues-last-wait-count',
     waitBadgeSeen: 'feedback-issues-wait-badge-seen',
-    waitSeenIds: 'feedback-issues-wait-seen-ids'
+    waitSeenIds: 'feedback-issues-wait-seen-ids',
+    boards: 'feedback-issues-boards',
+    activeBoard: 'feedback-issues-active-board'
   };
+
+  /* ---------------------------------------------------------
+   * 多表格（逻辑分区）
+   * 记录统一存在同一个 issues 数组里，用 boardId 区分；
+   * 状态/类型/跟进状态/看板卡片/筛选等配置按表分片存储。
+   * 默认表沿用原始键名 → 历史数据零迁移。
+   * --------------------------------------------------------- */
+  var BOARD_SCOPED_KEYS = ['statuses','fuStatuses','types','filters','statOrder','statRows','customCards','lastWaitCount','waitSeenIds'];
+  var DEFAULT_BOARD_ID = 'overseas';
+  var ACTIVE_BOARD = (function () {
+    try { return localStorage.getItem(BASE_KEYS.activeBoard) || DEFAULT_BOARD_ID; }
+    catch (e) { return DEFAULT_BOARD_ID; }
+  })();
+
+  function boardStorageKey(name) {
+    if (BOARD_SCOPED_KEYS.indexOf(name) === -1) return BASE_KEYS[name];
+    return ACTIVE_BOARD === DEFAULT_BOARD_ID ? BASE_KEYS[name] : BASE_KEYS[name] + ':' + ACTIVE_BOARD;
+  }
+
+  // KEYS 用取值器：切换表格后同一个 KEYS.types 自动指向新表的分片键
+  var KEYS = {};
+  Object.keys(BASE_KEYS).forEach(function (k) {
+    Object.defineProperty(KEYS, k, { enumerable: true, get: function () { return boardStorageKey(k); } });
+  });
+
+  // 表清单：所有设备共享（存 app_kv）
+  function boardsList() {
+    var list = null;
+    try { list = JSON.parse(localStorage.getItem(BASE_KEYS.boards) || 'null'); } catch (e) { list = null; }
+    if (!Array.isArray(list) || !list.length) {
+      list = [{ id: DEFAULT_BOARD_ID, name: '海外工厂反馈异常记录台', order: 0 }];
+      try { localStorage.setItem(BASE_KEYS.boards, JSON.stringify(list)); } catch (e) {}
+    }
+    return list;
+  }
+  function currentBoard() {
+    var list = boardsList();
+    for (var i = 0; i < list.length; i++) if (list[i].id === ACTIVE_BOARD) return list[i];
+    return list[0];
+  }
 
   // 内置状态：id 固定，多语言名称走 i18n；用户重命名后则显示自定义名
   var DEFAULT_STATUSES = [
@@ -1214,13 +1324,25 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   var I18N = {
     zh: {
       appTitle: '工厂反馈异常记录台',
-      subtitle: '快速记录工厂反馈的系统异常，数据仅保存在本机浏览器中，刷新不丢失。',
+      boardNew: '新建表格',
+      boardRename: '重命名当前表格',
+      boardNamePrompt: '请输入表格名称：',
+      boardDefaultName: '新的反馈记录台',
+      boardCreated: '表格已创建',
+      boardRenamed: '表格已重命名',
+      boardNameRequired: '表格名称不能为空',
+      boardDelete: '删除当前表格',
+      boardDeleteTitle: '删除表格',
+      boardDeleteConfirm: '将删除「{name}」及其 {n} 条记录，删除后无法在界面中恢复。确定继续吗？',
+      boardDeleteLast: '至少保留一个表格，无法删除',
+      boardDeleted: '表格已删除',
+      subtitle: '快速记录工厂反馈的系统异常，数据已保存在服务器云端，刷新不丢失。',
       export: '导出 CSV', statusSettings: '状态设置', typeSettings: '类型设置', importPpt: '导入PPT数据', clearData: '清空数据',
       clearDataConfirm: '确定清空所有记录和自定义类型？此操作不可恢复。',
       batchDelete: '批量删除', batchDeleteTitle: '批量删除',
-      deleteFiltered: '删除当前筛选结果', deleteFilteredConfirm: '确定删除当前筛选条件下的 {n} 条记录？此操作不可恢复。',
+      deleteFiltered: '删除当前筛选结果', deleteFilteredConfirm: '确定删除当前筛选条件下的 {n} 条记录？删除后可在 5 秒内撤回，或到回收站恢复。',
       selectMode: '勾选删除', exitSelectMode: '退出选择', selectAll: '全选', selectNone: '取消全选',
-      deleteSelected: '删除已选', deleteSelectedConfirm: '确定删除已选中的 {n} 条记录？',
+      deleteSelected: '删除已选', deleteSelectedConfirm: '确定删除已选中的 {n} 条记录？删除后可在 5 秒内撤回，或到回收站恢复。',
       deletedN: '已删除 {n} 条记录', selectedCount: '已选 {n} 条',
       localEmptyRestore: '检测到本地记录为空，已从云端重新拉取数据（未删除任何云端数据）。',
       addCard: '+ 新增看板', addCardTitle: '新增计数看板', cardLabel: '看板名称', cardField: '计数字段', cardValue: '匹配值',
@@ -1265,7 +1387,19 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       low: '低', medium: '中', high: '高',
       levelLow: '低', levelMedium: '中', levelHigh: '高',
       totalUnresolved: '未处理', totalAll: '总数',
-      deleteConfirm: '确定删除这条记录吗？删除后不可恢复。',
+      deleteTitle: '删除记录',
+      delete: '删除',
+      deleteConfirm: '确定删除这条记录吗？删除后可在 5 秒内撤回，或到回收站恢复。',
+      settingsMenu: '参数设置',
+      trashTitle: '回收站',
+      trashCurrentOnly: '仅显示当前表格「{name}」的删除记录',
+      trashEmpty: '回收站是空的',
+      trashRestore: '恢复', trashRestoreAll: '全部恢复', trashClear: '清空回收站',
+      trashClearConfirm: '将永久清除本表回收站中的 {n} 条记录，此操作不可撤销。确定吗？',
+      trashUndoMsg: '已删除 {n} 条记录', trashUndo: '撤回',
+      trashRestoredN: '已恢复 {n} 条记录', trashRestored: '已恢复该记录', trashCleared: '回收站已清空',
+      trashBoardGone: '原表已删除，无法恢复',
+      colDesc: '描述', colType: '类型', colDeletedAt: '删除时间',
       addStatus: '+ 新增状态', addType: '+ 新增类型', close: '关闭',
       renameStatus: '重命名', isResolvedLike: '视为完成', translate: '翻译',
       statusInUse: '有 {n} 条记录使用该状态，请先迁移到其他状态。',
@@ -1293,13 +1427,25 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     },
     en: {
       appTitle: 'Factory Feedback Issue Tracker',
-      subtitle: 'Record system issues reported by factories. Data is stored locally in your browser only.',
+      boardNew: 'New table',
+      boardRename: 'Rename current table',
+      boardNamePrompt: 'Enter table name:',
+      boardDefaultName: 'New feedback table',
+      boardCreated: 'Table created',
+      boardRenamed: 'Table renamed',
+      boardNameRequired: 'Table name cannot be empty',
+      boardDelete: 'Delete current table',
+      boardDeleteTitle: 'Delete table',
+      boardDeleteConfirm: 'This will delete "{name}" and its {n} record(s). It cannot be undone in the UI. Continue?',
+      boardDeleteLast: 'At least one table must remain',
+      boardDeleted: 'Table deleted',
+      subtitle: 'Record system issues reported by factories. Data is saved to the cloud server and will not be lost on refresh.',
       export: 'Export CSV', statusSettings: 'Statuses', typeSettings: 'Types', importPpt: 'Import PPT Data', clearData: 'Clear Data',
       clearDataConfirm: 'Clear all records and custom types? This cannot be undone.',
       batchDelete: 'Batch Delete', batchDeleteTitle: 'Batch Delete',
-      deleteFiltered: 'Delete filtered results', deleteFilteredConfirm: 'Delete {n} records matching the current filter? This cannot be undone.',
+      deleteFiltered: 'Delete filtered results', deleteFilteredConfirm: 'Delete {n} records matching the current filter? You can undo within 5 seconds or restore them from the recycle bin.',
       selectMode: 'Select to delete', exitSelectMode: 'Exit selection', selectAll: 'Select all', selectNone: 'Deselect all',
-      deleteSelected: 'Delete selected', deleteSelectedConfirm: 'Delete {n} selected records?',
+      deleteSelected: 'Delete selected', deleteSelectedConfirm: 'Delete {n} selected records? You can undo within 5 seconds or restore them from the recycle bin.',
       deletedN: 'Deleted {n} records', selectedCount: '{n} selected',
       localEmptyRestore: 'Local records were empty; data was reloaded from cloud (nothing was deleted in cloud).',
       addCard: '+ Add Card', addCardTitle: 'Add Count Card', cardLabel: 'Card Label', cardField: 'Count Field', cardValue: 'Match Value',
@@ -1344,7 +1490,19 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       low: 'Low', medium: 'Medium', high: 'High',
       levelLow: 'Low', levelMedium: 'Medium', levelHigh: 'High',
       totalUnresolved: 'Unresolved', totalAll: 'Total',
-      deleteConfirm: 'Delete this issue? This cannot be undone.',
+      deleteTitle: 'Delete record',
+      delete: 'Delete',
+      deleteConfirm: 'Delete this issue? You can undo within 5 seconds, or restore it from the recycle bin.',
+      settingsMenu: 'Settings',
+      trashTitle: 'Recycle bin',
+      trashCurrentOnly: 'Showing deleted records of the current table "{name}" only',
+      trashEmpty: 'Recycle bin is empty',
+      trashRestore: 'Restore', trashRestoreAll: 'Restore all', trashClear: 'Empty bin',
+      trashClearConfirm: 'Permanently remove {n} item(s) from this table\'s recycle bin? This cannot be undone.',
+      trashUndoMsg: '{n} record(s) deleted', trashUndo: 'Undo',
+      trashRestoredN: 'Restored {n} record(s)', trashRestored: 'Record restored', trashCleared: 'Recycle bin emptied',
+      trashBoardGone: 'The original table no longer exists',
+      colDesc: 'Description', colType: 'Type', colDeletedAt: 'Deleted at',
       addStatus: '+ Add status', addType: '+ Add type', close: 'Close',
       renameStatus: 'Rename', isResolvedLike: 'Treat as done', translate: 'Translate',
       statusInUse: '{n} record(s) use this status. Migrate them first.',
@@ -1440,8 +1598,17 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   var CLOUD_PUSH_DEBOUNCE_MS = 600;
 
   // 上云的共享配置（其余 localStorage 键为每浏览器独立的偏好，不上云）
-  var CLOUD_KV_KEYS = [KEYS.statuses, KEYS.fuStatuses, KEYS.types,
-                       KEYS.statOrder, KEYS.statRows, KEYS.customCards];
+  var CLOUD_KV_SCOPED = ['statuses', 'fuStatuses', 'types', 'statOrder', 'statRows', 'customCards'];
+  // 按表展开共享配置的存储键：默认表用原键名，其余表用 `键:表id`
+  function cloudKvKeys() {
+    var out = [BASE_KEYS.boards];
+    boardsList().forEach(function (b) {
+      CLOUD_KV_SCOPED.forEach(function (k) {
+        out.push(b.id === DEFAULT_BOARD_ID ? BASE_KEYS[k] : BASE_KEYS[k] + ':' + b.id);
+      });
+    });
+    return out;
+  }
 
   var cloud = {
     on: !!(SUPABASE_URL && SUPABASE_ANON_KEY),
@@ -1452,6 +1619,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     snap: {},          // issueId -> JSON（上次确认已同步的 data，附件只含元数据）
     kvSnap: {},        // localStorage key -> JSON
     del: {},           // 明确的删除意图：issueId -> 时间戳（本地删除先入队，再由 cloudPush 软删云端）
+    restorePending: {}, // 刚恢复的记录：拉取时若远端仍为 deleted=true，先不删除本地
     pushedAttach: {},  // 已上传到远端的附件 id
     pushTimer: null,
     pollTimer: null
@@ -1538,6 +1706,44 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     btn.addEventListener('click', function () { mask.remove(); });
     mask.addEventListener('click', function (e) { if (e.target === mask) mask.remove(); });
   }
+
+  // 页内输入弹窗：替代原生 prompt（浏览器 / 内嵌预览可能静默拦截原生对话框）
+  function askInput(title, defaultValue, onOk) {
+    var mask = document.createElement('div');
+    mask.className = 'modal-mask show';
+    mask.innerHTML =
+      '<div class="modal" style="max-width:380px">' +
+        '<h3>' + escapeHtml(title) + '</h3>' +
+        '<input type="text" id="input-dialog-value" maxlength="40" autocomplete="off" ' +
+          'style="width:100%;padding:8px 10px;border:1px solid var(--border-2,#d7dde5);' +
+          'border-radius:6px;background:var(--input-bg,#fff);color:var(--text,#1f2a37);font-family:inherit">' +
+        '<div id="input-dialog-err" style="color:var(--brand-red);font-size:12px;min-height:18px;margin-top:4px"></div>' +
+        '<div class="modal-footer">' +
+          '<button type="button" class="btn" id="input-dialog-cancel">' + escapeHtml(t('cancel')) + '</button>' +
+          '<button type="button" class="btn btn-primary" id="input-dialog-ok">' + escapeHtml(t('ok')) + '</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(mask);
+    var input = mask.querySelector('#input-dialog-value');
+    var err = mask.querySelector('#input-dialog-err');
+    input.value = defaultValue || '';
+    input.focus();
+    input.select();
+    function close() { mask.remove(); }
+    function submit() {
+      var v = input.value.trim();
+      if (!v) { err.textContent = t('boardNameRequired'); input.focus(); return; }
+      close();
+      onOk(v);
+    }
+    mask.querySelector('#input-dialog-ok').addEventListener('click', submit);
+    mask.querySelector('#input-dialog-cancel').addEventListener('click', close);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      else if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    });
+    mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
+  }
   // 用 RPC 校验口令：PostgREST 遇 RLS 拒绝时返回空集而非错误码，故必须走函数比对
   function cloudVerifyPass(cb) {
     cloudFetch('/rpc/check_app_pass', { method: 'POST', body: '{}' })
@@ -1549,7 +1755,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   // ---------- 写入：本地一变就排队推送 ----------
   function cloudQueuePush(key) {
     if (!cloud.on || !cloud.booted) return;
-    if (key !== KEYS.issues && CLOUD_KV_KEYS.indexOf(key) === -1) return;
+    if (key !== KEYS.issues && cloudKvKeys().indexOf(key) === -1) return;
     clearTimeout(cloud.pushTimer);
     cloud.pushTimer = setTimeout(function () { cloudPush(); }, CLOUD_PUSH_DEBOUNCE_MS);
   }
@@ -1560,6 +1766,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       body: JSON.stringify({ id: i.id, data: issueRowData(i), updated_at: nowIso, deleted: false })
     }).then(function () {
       cloud.snap[i.id] = slim;
+      delete cloud.restorePending[i.id];
       return cloudSyncAttachments(i);
     });
   }
@@ -1598,6 +1805,243 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
     cloudQueuePush(KEYS.issues);
   }
+  // 删除云端共享配置键（删除表格时清理该表的分片配置）
+  function cloudDeleteKv(keys) {
+    if (!cloud.on || !cloud.booted || !keys || !keys.length) return;
+    keys.forEach(function (k) {
+      cloudFetch('/app_kv?key=eq.' + encodeURIComponent(k), {
+        method: 'DELETE',
+        headers: { 'Prefer': 'return=minimal' }
+      }).then(function () {
+        delete cloud.kvSnap[k];
+        try { localStorage.setItem(CLOUD_KV_SNAP_STORE, JSON.stringify(cloud.kvSnap)); } catch (e) {}
+      }, function () {});
+    });
+  }
+
+  /* ========== 回收站：被删记录先保留在本地，支持 5 秒撤回与手动恢复 ========== */
+  var TRASH_STORE = 'feedback-issues-trash';
+  var TRASH_MAX = 100;
+  var TRASH_TTL_MS = 30 * 24 * 3600 * 1000;
+
+  function loadTrash() {
+    var list = load(TRASH_STORE, []);
+    if (!Array.isArray(list)) list = [];
+    var now = Date.now();
+    list = list.filter(function (t) {
+      return t && t.issue && t.issue.id && (now - (t.deletedAt || 0)) < TRASH_TTL_MS;
+    });
+    return list.length > TRASH_MAX ? list.slice(0, TRASH_MAX) : list;
+  }
+  function saveTrash(list) {
+    try { localStorage.setItem(TRASH_STORE, JSON.stringify(list)); } catch (e) {}
+  }
+  function trashAdd(issues, source) {
+    var list = loadTrash();
+    issues.forEach(function (i) {
+      if (!i || !i.id) return;
+      list = list.filter(function (t) { return t.issue.id !== i.id; });
+      list.unshift({
+        issue: JSON.parse(JSON.stringify(i)),
+        boardId: i.boardId || DEFAULT_BOARD_ID,
+        deletedAt: Date.now(),
+        source: source || 'single'
+      });
+    });
+    saveTrash(list.length > TRASH_MAX ? list.slice(0, TRASH_MAX) : list);
+    renderTrashBadge();
+  }
+  function trashItemsForBoard() {
+    return loadTrash().filter(function (t) { return t.boardId === ACTIVE_BOARD; });
+  }
+  function restoreFromTrash(id) {
+    var list = loadTrash();
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) { if (list[i].issue.id === id) { idx = i; break; } }
+    if (idx === -1) return false;
+    var rec = list[idx];
+    if (!boardsList().some(function (b) { return b.id === rec.boardId; })) {
+      toast(t('trashBoardGone'));
+      return false;
+    }
+    list.splice(idx, 1);
+    saveTrash(list);
+    // 云端：撤销删除意图 + 让下一次推送以 deleted:false 覆盖远端软删行
+    delete cloud.del[id];
+    delete cloud.snap[id];
+    cloud.restorePending[id] = Date.now();
+    state.issues.unshift(rec.issue);
+    safeSave(KEYS.issues, state.issues);
+    try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
+    cloudQueuePush(KEYS.issues);
+    renderTrashBadge();
+    return true;
+  }
+  // 统一删除入口：先入回收站，再走原有删除通道
+  function deleteWithTrash(ids, source) {
+    var recs = [];
+    (ids || []).forEach(function (id) {
+      var r = state.issues.find(function (x) { return x.id === id; });
+      if (r) recs.push(r);
+    });
+    if (!recs.length) return 0;
+    var removedIds = recs.map(function (r) { return r.id; });
+    trashAdd(recs, source || 'single');
+    cloudQueueDelete(removedIds);
+    render();
+    toastUndo(t('trashUndoMsg').replace('{n}', removedIds.length), function () {
+      var n = 0;
+      removedIds.forEach(function (id) { if (restoreFromTrash(id)) n++; });
+      render();
+      toast(t('trashRestoredN').replace('{n}', n));
+    });
+    return removedIds.length;
+  }
+  var undoToastEl = null, undoTimer = null;
+  function toastUndo(msg, onUndo) {
+    if (undoToastEl) { clearInterval(undoTimer); undoToastEl.remove(); undoToastEl = null; }
+    var el = document.createElement('div');
+    el.className = 'undo-toast';
+    el.innerHTML = '<span class="undo-msg"></span>' +
+      '<button type="button" class="undo-btn"></button><span class="undo-sec">5s</span>';
+    el.querySelector('.undo-msg').textContent = msg;
+    el.querySelector('.undo-btn').textContent = t('trashUndo');
+    document.body.appendChild(el);
+    undoToastEl = el;
+    var left = 5;
+    el.querySelector('.undo-btn').addEventListener('click', function () {
+      clearInterval(undoTimer);
+      el.remove(); undoToastEl = null;
+      if (onUndo) onUndo();
+    });
+    undoTimer = setInterval(function () {
+      left--;
+      var sec = el.querySelector('.undo-sec');
+      if (sec) sec.textContent = left + 's';
+      if (left <= 0) {
+        clearInterval(undoTimer);
+        if (undoToastEl === el) { el.remove(); undoToastEl = null; }
+      }
+    }, 1000);
+  }
+  // 页内确认框（替代原生 confirm，避免被浏览器静默拦截）
+  function confirmDialog(title, msg, okText, onOk) {
+    var mask = document.createElement('div');
+    mask.className = 'modal-mask show';
+    mask.innerHTML =
+      '<div class="modal" style="max-width:420px">' +
+        '<h3 id="cf-title"></h3>' +
+        '<p class="modal-hint" id="cf-msg"></p>' +
+        '<div class="modal-footer">' +
+          '<button type="button" class="btn" id="cf-cancel"></button>' +
+          '<button type="button" class="btn btn-danger" id="cf-ok"></button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(mask);
+    mask.querySelector('#cf-title').textContent = title;
+    mask.querySelector('#cf-msg').textContent = msg;
+    mask.querySelector('#cf-cancel').textContent = t('cancel');
+    mask.querySelector('#cf-ok').textContent = okText || t('ok');
+    function close() { mask.remove(); }
+    mask.querySelector('#cf-cancel').addEventListener('click', close);
+    mask.querySelector('#cf-ok').addEventListener('click', function () { close(); onOk(); });
+    mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
+  }
+  function renderTrashBadge() {
+    var badge = document.getElementById('trash-badge');
+    if (!badge) return;
+    var n = trashItemsForBoard().length;
+    badge.textContent = n > 99 ? '99+' : String(n);
+    if (n > 0) badge.removeAttribute('hidden');
+    else badge.setAttribute('hidden', 'hidden');
+  }
+  function openTrash() {
+    var items = trashItemsForBoard();
+    var mask = document.createElement('div');
+    mask.className = 'modal-mask show';
+    mask.innerHTML =
+      '<div class="modal trash-modal">' +
+        '<h3 id="trash-title"></h3>' +
+        '<div class="trash-note" id="trash-note"></div>' +
+        '<div class="trash-list" id="trash-list"></div>' +
+        '<div class="modal-footer">' +
+          '<button type="button" class="btn" id="trash-restore-all"></button>' +
+          '<button type="button" class="btn btn-danger" id="trash-clear"></button>' +
+          '<button type="button" class="btn btn-primary" id="trash-close"></button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(mask);
+    mask.querySelector('#trash-title').textContent = t('trashTitle');
+    mask.querySelector('#trash-note').textContent = t('trashCurrentOnly').replace('{name}', currentBoard().name);
+    mask.querySelector('#trash-close').textContent = t('close') || '关闭';
+
+    var listEl = mask.querySelector('#trash-list');
+    function reload() {
+      mask.remove();
+      render();
+      openTrash();
+    }
+    if (!items.length) {
+      listEl.innerHTML = '<div class="trash-empty"></div>';
+      listEl.querySelector('.trash-empty').textContent = t('trashEmpty');
+    } else {
+      var head = document.createElement('div');
+      head.className = 'trash-row head';
+      head.innerHTML = '<div></div><div></div><div></div><div></div><div></div>';
+      var labels = [t('customer'), t('colDesc') || '描述', t('colType') || '类型', t('colDeletedAt') || '删除时间', ''];
+      Array.prototype.forEach.call(head.children, function (c, i) { c.textContent = labels[i] || ''; });
+      listEl.appendChild(head);
+      items.forEach(function (it) {
+        var i = it.issue;
+        var tp = null;
+        for (var k = 0; k < state.types.length; k++) { if (state.types[k].id === i.typeId) { tp = state.types[k]; break; } }
+        var typeName = tp ? tp.name : ((i.followUp && i.followUp.category) || '');
+        var row = document.createElement('div');
+        row.className = 'trash-row';
+        var c1 = document.createElement('div'); c1.className = 't-cust'; c1.textContent = i.customer || '';
+        var c2 = document.createElement('div'); c2.className = 't-desc'; c2.textContent = descDisplay(i) || '';
+        var c3 = document.createElement('div'); c3.textContent = typeName;
+        var c4 = document.createElement('div'); c4.className = 't-time';
+        c4.textContent = new Date(it.deletedAt).toLocaleString();
+        var c5 = document.createElement('div');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm';
+        btn.textContent = t('trashRestore');
+        btn.addEventListener('click', function () {
+          if (restoreFromTrash(i.id)) { toast(t('trashRestored')); reload(); }
+        });
+        c5.appendChild(btn);
+        row.appendChild(c1); row.appendChild(c2); row.appendChild(c3); row.appendChild(c4); row.appendChild(c5);
+        listEl.appendChild(row);
+      });
+    }
+
+    var restoreAll = mask.querySelector('#trash-restore-all');
+    var clearBtn = mask.querySelector('#trash-clear');
+    restoreAll.textContent = t('trashRestoreAll');
+    clearBtn.textContent = t('trashClear');
+    restoreAll.disabled = !items.length;
+    clearBtn.disabled = !items.length;
+    restoreAll.addEventListener('click', function () {
+      var n = 0;
+      trashItemsForBoard().forEach(function (it) { if (restoreFromTrash(it.issue.id)) n++; });
+      render();
+      toast(t('trashRestoredN').replace('{n}', n));
+      reload();
+    });
+    clearBtn.addEventListener('click', function () {
+      confirmDialog(t('trashClear'), t('trashClearConfirm').replace('{n}', items.length), t('trashClear'), function () {
+        saveTrash(loadTrash().filter(function (t) { return t.boardId !== ACTIVE_BOARD; }));
+        renderTrashBadge();
+        render();
+        toast(t('trashCleared'));
+        reload();
+      });
+    });
+    mask.querySelector('#trash-close').addEventListener('click', function () { mask.remove(); });
+    mask.addEventListener('click', function (e) { if (e.target === mask) mask.remove(); });
+  }
   function cloudPush() {
     if (!cloud.on || !cloud.booted) return Promise.resolve();
     // 空库熔断：本地一条都没有、基线却有记录且没有待删除意图 → 判定为本地数据异常，只拉取不推送
@@ -1626,7 +2070,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       }, function () {}));
     });
     // 共享配置
-    CLOUD_KV_KEYS.forEach(function (key) {
+    cloudKvKeys().forEach(function (key) {
       var v = localStorage.getItem(key);
       if (v == null || cloud.kvSnap[key] === v) return;
       ops.push(cloudFetch('/app_kv?on_conflict=key', {
@@ -1651,12 +2095,16 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       if (cloud.del[r.id]) { delete cloud.snap[r.id]; return; }
       var idx = state.issues.findIndex(function (x) { return x.id === r.id; });
       if (r.deleted) {
+        // 刚从回收站恢复、尚未推送成功的记录：保留本地，等 cloudPush 把 deleted 改回 false
+        if (cloud.restorePending[r.id]) return;
         if (idx !== -1) { state.issues.splice(idx, 1); changed = true; }
         delete cloud.snap[r.id];
         delete cloud.del[r.id];
         return;
       }
       var remote = r.data || {};
+      // 多表格：远端老记录（无 boardId）归入默认表
+      if (!remote.boardId) remote.boardId = DEFAULT_BOARD_ID;
       if (idx !== -1) {
         var local = state.issues[idx];
         // 本地相对「上次确认已同步」有改动 → 保留本地，稍后由 cloudPush 推上去
@@ -1683,7 +2131,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function cloudMergeKv(rows) {
     var changed = false;
     rows.forEach(function (r) {
-      if (CLOUD_KV_KEYS.indexOf(r.key) === -1) return;
+      if (cloudKvKeys().indexOf(r.key) === -1) return;
       var local = localStorage.getItem(r.key);
       if (cloud.kvSnap[r.key] !== undefined && local !== null && local !== cloud.kvSnap[r.key]) return;
       var j = JSON.stringify(r.value);
@@ -1960,6 +2408,15 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
    * ========================================================= */
   function initData() {
     state.issues = load(KEYS.issues, []);
+
+    // 多表格：历史记录（无 boardId）全部归入默认表，并回写本地缓存
+    var boardFixed = false;
+    state.issues.forEach(function (i) {
+      if (!i.boardId) { i.boardId = DEFAULT_BOARD_ID; boardFixed = true; }
+    });
+    if (boardFixed) {
+      try { localStorage.setItem(BASE_KEYS.issues, JSON.stringify(state.issues)); } catch (e) {}
+    }
     var statuses = load(KEYS.statuses, null);
     if (!statuses) { statuses = JSON.parse(JSON.stringify(DEFAULT_STATUSES)); safeSave(KEYS.statuses, statuses); }
     state.statuses = statuses;
@@ -2031,7 +2488,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   }
   function uniqueCustomers() {
     var map = {};
-    state.issues.forEach(function (i) {
+    boardIssues().forEach(function (i) {
       var c = (i.customer || '').trim();
       if (c && !map[c.toLowerCase()]) map[c.toLowerCase()] = c;
     });
@@ -2080,12 +2537,18 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   /* =========================================================
    * 筛选
    * ========================================================= */
+  // 当前表格的记录（多表格逻辑分区：展示/统计只使用本表数据，同步层仍用全量 state.issues）
+  function boardIssues() {
+    return state.issues.filter(function (i) {
+      return (i.boardId || DEFAULT_BOARD_ID) === ACTIVE_BOARD;
+    });
+  }
   function getFiltered() {
     var f = state.filters;
     var fromTs = f.from ? new Date(f.from + 'T00:00').getTime() : -Infinity;
     var toTs = f.to ? new Date(f.to + 'T23:59:59').getTime() : Infinity;
     var kw = (f.keyword || '').toLowerCase().trim();
-    return state.issues.filter(function (i) {
+    return boardIssues().filter(function (i) {
       if (f.customer && i.customer !== f.customer) return false;
       if (f.type && i.typeId !== f.type) return false;
       if (f.level && i.level !== f.level) return false;
@@ -2183,7 +2646,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     return val === target;
   }
   function renderStats() {
-    var base = state.statsFollowFilter ? getFiltered() : state.issues;
+    var base = state.statsFollowFilter ? getFiltered() : boardIssues();
     var counts = { low: 0, medium: 0, high: 0, unresolved: 0 };
     var byStatus = {};
     base.forEach(function (i) {
@@ -2576,7 +3039,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
 
   // Req7: 未处理（Wait for feedback）新增数据追踪 —— 基于 ID 集合检测真正的新增
   function updateWaitNewCount() {
-    var currentWaitIds = state.issues
+    var currentWaitIds = boardIssues()
       .filter(function (i) { return i.status === 'wait-feedback'; })
       .map(function (i) { return i.id; });
     var seenIds = load(KEYS.waitSeenIds, null);
@@ -2593,7 +3056,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     state.waitNewIds = newIds; // 供 badge 点击跳转使用
   }
   function dismissWaitBadge() {
-    var currentWaitIds = state.issues
+    var currentWaitIds = boardIssues()
       .filter(function (i) { return i.status === 'wait-feedback'; })
       .map(function (i) { return i.id; });
     // 把当前所有 wait-feedback 标为已 seen（新增的也算 seen 了）
@@ -2647,7 +3110,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     // IE PIC 筛选
     var fie = document.getElementById('f-ie-pic');
     var iePics = [];
-    state.issues.forEach(function (i) { if (i.followUp && i.followUp.iePic) { if (iePics.indexOf(i.followUp.iePic) === -1) iePics.push(i.followUp.iePic); } });
+    boardIssues().forEach(function (i) { if (i.followUp && i.followUp.iePic) { if (iePics.indexOf(i.followUp.iePic) === -1) iePics.push(i.followUp.iePic); } });
     iePics.sort();
     fie.innerHTML = '<option value="">' + escapeHtml(t('all')) + '</option>' +
       iePics.map(function (v) { return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>'; }).join('');
@@ -2656,7 +3119,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     // ISD PIC 筛选
     var fis = document.getElementById('f-isd-pic');
     var isdPics = [];
-    state.issues.forEach(function (i) { if (i.followUp && i.followUp.isdPic) { if (isdPics.indexOf(i.followUp.isdPic) === -1) isdPics.push(i.followUp.isdPic); } });
+    boardIssues().forEach(function (i) { if (i.followUp && i.followUp.isdPic) { if (isdPics.indexOf(i.followUp.isdPic) === -1) isdPics.push(i.followUp.isdPic); } });
     isdPics.sort();
     fis.innerHTML = '<option value="">' + escapeHtml(t('all')) + '</option>' +
       isdPics.map(function (v) { return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>'; }).join('');
@@ -2679,7 +3142,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (list.length === 0) {
       container.innerHTML = '';
       emptyEl.hidden = false;
-      emptyEl.textContent = state.issues.length === 0 ? t('noData') : t('noFiltered');
+      emptyEl.textContent = boardIssues().length === 0 ? t('noData') : t('noFiltered');
       document.getElementById('count-badge');
       return;
     }
@@ -2794,7 +3257,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (list.length === 0) {
       container.innerHTML = '';
       emptyEl.hidden = false;
-      emptyEl.textContent = state.issues.length === 0 ? t('noData') : t('noFiltered');
+      emptyEl.textContent = boardIssues().length === 0 ? t('noData') : t('noFiltered');
       return;
     }
     emptyEl.hidden = true;
@@ -2909,6 +3372,140 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       renderFollowup();
     }
     updateBatchBar();
+    renderBoardSwitcher();
+    renderTrashBadge();
+  }
+
+  /* =========================================================
+   * 多表格切换
+   * ========================================================= */
+  function renderBoardSwitcher() {
+    var nameEl = document.getElementById('board-current-name');
+    var listEl = document.getElementById('board-menu-list');
+    if (!nameEl || !listEl) return;
+    var cur = currentBoard();
+    nameEl.textContent = cur.name;
+    document.title = cur.name;
+    listEl.innerHTML = boardsList().map(function (b) {
+      return '<button class="board-menu-item' + (b.id === ACTIVE_BOARD ? ' active' : '') + '" data-board="' +
+        escapeHtml(b.id) + '">' + escapeHtml(b.name) + (b.id === ACTIVE_BOARD ? ' ✓' : '') + '</button>';
+    }).join('');
+  }
+  function switchBoard(id) {
+    if (!id || id === ACTIVE_BOARD) return;
+    ACTIVE_BOARD = id;
+    try { localStorage.setItem(BASE_KEYS.activeBoard, id); } catch (e) {}
+    initData();
+    render();
+  }
+  function createBoard() {
+    askInput(t('boardNamePrompt'), t('boardDefaultName'), function (name) {
+      var id = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      // 复制当前表配置：状态/类型/跟进状态/看板卡片/统计布局
+      CLOUD_KV_SCOPED.forEach(function (k) {
+        var curVal = localStorage.getItem(KEYS[k]);
+        if (curVal != null) { try { localStorage.setItem(BASE_KEYS[k] + ':' + id, curVal); } catch (e) {} }
+      });
+      var list = boardsList();
+      list.push({ id: id, name: name, order: list.length });
+      try { localStorage.setItem(BASE_KEYS.boards, JSON.stringify(list)); } catch (e) {}
+      switchBoard(id);
+      cloudQueuePush(BASE_KEYS.boards);
+      toast(t('boardCreated'));
+    });
+  }
+  function renameBoard() {
+    var cur = currentBoard();
+    askInput(t('boardNamePrompt'), cur.name, function (name) {
+      var list = boardsList().map(function (b) {
+        return b.id === cur.id ? { id: b.id, name: name, order: b.order } : b;
+      });
+      try { localStorage.setItem(BASE_KEYS.boards, JSON.stringify(list)); } catch (e) {}
+      renderBoardSwitcher();
+      cloudQueuePush(BASE_KEYS.boards);
+      toast(t('boardRenamed'));
+    });
+  }
+  function closeBoardMenu() {
+    var menu = document.getElementById('board-menu');
+    if (menu) menu.hidden = true;
+  }
+  // 删除表格：连同该表记录（走统一删除通道）与分片配置一起移除
+  function deleteBoard() {
+    var cur = currentBoard();
+    if (boardsList().length <= 1) { toast(t('boardDeleteLast')); return; }
+    var ids = state.issues.filter(function (i) {
+      return (i.boardId || DEFAULT_BOARD_ID) === cur.id;
+    }).map(function (i) { return i.id; });
+    confirmBoardDelete(cur, ids);
+  }
+  function confirmBoardDelete(cur, ids) {
+    confirmDialog(
+      t('boardDeleteTitle'),
+      t('boardDeleteConfirm').replace('{name}', cur.name).replace('{n}', ids.length),
+      t('boardDelete'),
+      function () { doDeleteBoard(cur, ids); }
+    );
+  }
+  function doDeleteBoard(cur, ids) {
+    var list = boardsList().filter(function (b) { return b.id !== cur.id; });
+    if (!list.length) return;
+    if (ids.length) cloudQueueDelete(ids);
+    var keys = BOARD_SCOPED_KEYS.map(function (k) {
+      return cur.id === DEFAULT_BOARD_ID ? BASE_KEYS[k] : BASE_KEYS[k] + ':' + cur.id;
+    });
+    keys.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+    cloudDeleteKv(keys);
+    list.forEach(function (b, i) { b.order = i; });
+    try { localStorage.setItem(BASE_KEYS.boards, JSON.stringify(list)); } catch (e) {}
+    switchBoard(list[0].id);
+    cloudQueuePush(BASE_KEYS.boards);
+    toast(t('boardDeleted'));
+  }
+  function bindBoardSwitcher() {
+    var btn = document.getElementById('btn-board-switch');
+    var menu = document.getElementById('board-menu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+    });
+    menu.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (e.target.id === 'btn-board-new') { closeBoardMenu(); createBoard(); return; }
+      if (e.target.id === 'btn-board-rename') { closeBoardMenu(); renameBoard(); return; }
+      if (e.target.id === 'btn-board-delete') { closeBoardMenu(); deleteBoard(); return; }
+      var item = e.target.closest('[data-board]');
+      if (item) { closeBoardMenu(); switchBoard(item.getAttribute('data-board')); }
+    });
+    document.addEventListener('click', closeBoardMenu);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeBoardMenu(); });
+  }
+
+  // 顶栏：参数设置下拉 + 回收站入口
+  function bindTopbarMenus() {
+    var btn = document.getElementById('btn-settings-menu');
+    var menu = document.getElementById('settings-menu');
+    if (btn && menu) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        menu.hidden = !menu.hidden;
+        btn.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
+      });
+      menu.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var item = e.target.closest ? e.target.closest('.settings-item') : null;
+        if (item) { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+      });
+      document.addEventListener('click', function () {
+        if (!menu.hidden) { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !menu.hidden) { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+      });
+    }
+    var trashBtn = document.getElementById('btn-trash-open');
+    if (trashBtn) trashBtn.addEventListener('click', function (e) { e.stopPropagation(); openTrash(); });
   }
 
   /* =========================================================
@@ -3011,6 +3608,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var typeObj = typeId ? getTypeById(typeId) : null;
     state.issues.unshift({
       id: uid(),
+      boardId: ACTIVE_BOARD,
       customer: customer,
       description: description,
       level: document.getElementById('level').value,
@@ -3063,10 +3661,9 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       state.editingId = state.editingId === id ? null : id;
       render();
     } else if (action === 'delete') {
-      if (window.confirm(t('deleteConfirm'))) {
-        cloudQueueDelete([id]);
-        render();
-      }
+      confirmDialog(t('deleteTitle'), t('deleteConfirm'), t('delete'), function () {
+        deleteWithTrash([id], 'single');
+      });
     } else if (action === 'cancel-edit') {
       state.editingId = null;
       render();
@@ -3319,7 +3916,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   // 批量居中：ISD PIC ~ Deadline 所有列一次性设为水平居中
   document.getElementById('fmt-batch-center').addEventListener('click', function () {
     var fields = ['isdPic','iePic','ieRequirement','fsDate','fsStatus','devDate','devStatus','ftDate','ftStatus','deadline','deadlineStatus'];
-    state.issues.forEach(function (issue) {
+    boardIssues().forEach(function (issue) {
       if (!issue.followUp) issue.followUp = {};
       fields.forEach(function (f) {
         var styleKey = f + '_style';
@@ -4525,7 +5122,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var now = Date.now();
     newRecords.forEach(function (r, i) {
       var issue = {
-        id: uid(), customer: r.system, description: r.detail, level: 'medium',
+        id: uid(), boardId: ACTIVE_BOARD, customer: r.system, description: r.detail, level: 'medium',
         typeId: typeMap[r.category] || '',
         occurredAt: new Date(now - (newRecords.length - i) * 60000).toISOString().slice(0, 16),
         status: 'wait-feedback', createdAt: now - (newRecords.length - i) * 60000, updatedAt: now - (newRecords.length - i) * 60000,
@@ -4561,11 +5158,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   document.getElementById('btn-delete-filtered').addEventListener('click', function () {
     var filtered = getFiltered();
     if (filtered.length === 0) { toast(t('noFiltered')); return; }
-    if (!confirm(t('deleteFilteredConfirm').replace('{n}', filtered.length))) return;
-    cloudQueueDelete(filtered.map(function (i) { return i.id; }));
-    document.getElementById('modal-batch-delete').classList.remove('show');
-    render();
-    toast(t('deletedN').replace('{n}', filtered.length));
+    confirmDialog(t('batchDeleteTitle'), t('deleteFilteredConfirm').replace('{n}', filtered.length), t('delete'), function () {
+      deleteWithTrash(filtered.map(function (i) { return i.id; }), 'batch');
+      document.getElementById('modal-batch-delete').classList.remove('show');
+    });
   });
   document.getElementById('btn-enter-sel-mode').addEventListener('click', function () {
     state.selMode = true;
@@ -4581,11 +5177,11 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   document.getElementById('btn-delete-selected').addEventListener('click', function () {
     var selectedIds = Object.keys(state.selSet).filter(function (k) { return state.selSet[k]; });
     if (selectedIds.length === 0) return;
-    if (!confirm(t('deleteSelectedConfirm').replace('{n}', selectedIds.length))) return;
-    cloudQueueDelete(selectedIds);
-    state.selSet = {};
-    render();
-    toast(t('deletedN').replace('{n}', selectedIds.length));
+    confirmDialog(t('batchDeleteTitle'), t('deleteSelectedConfirm').replace('{n}', selectedIds.length), t('delete'), function () {
+      state.selSet = {};
+      state.selMode = false;
+      deleteWithTrash(selectedIds, 'batch');
+    });
   });
   // 选择框事件（卡片 + 跟进表共用 .sel-checkbox）
   document.addEventListener('change', function (e) {
@@ -4632,6 +5228,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     initData();
     applyTheme();
     applyI18n();
+    bindBoardSwitcher();
+    bindTopbarMenus();
     document.getElementById('logo-fap').src = LOGO_FAP;
     document.getElementById('logo-company').src = LOGO_COMPANY;
     document.getElementById('stats-scope-toggle').checked = state.statsFollowFilter;
