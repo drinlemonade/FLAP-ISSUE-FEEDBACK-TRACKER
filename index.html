@@ -2546,6 +2546,14 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
 
     var f = load(KEYS.filters, null);
     if (f) state.filters = Object.assign(state.filters, f);
+
+    // 看板配置按表分片：切表/同步后重读，新表才不会沿用上一张表的自定义卡片
+    var cc = load(KEYS.customCards, []);
+    state.customCards = Array.isArray(cc) ? cc : [];
+    var so = load(KEYS.statOrder, []);
+    state.statOrder = Array.isArray(so) ? so : [];
+    var sr = load(KEYS.statRows, {});
+    state.statRows = (sr && typeof sr === 'object' && !Array.isArray(sr)) ? sr : {};
   }
 
   function getStatusById(id) {
@@ -3477,8 +3485,9 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function createBoard() {
     askInput(t('boardNamePrompt'), t('boardDefaultName'), function (name) {
       var id = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-      // 复制当前表配置：状态/类型/跟进状态/看板卡片/统计布局
-      CLOUD_KV_SCOPED.forEach(function (k) {
+      // 复制基础配置：状态 / 类型 / 跟进状态
+      // 看板（自定义卡片、顺序、分行）不继承，交由用户在新建的表里自行设置
+      ['statuses', 'fuStatuses', 'types'].forEach(function (k) {
         var curVal = localStorage.getItem(KEYS[k]);
         if (curVal != null) { try { localStorage.setItem(BASE_KEYS[k] + ':' + id, curVal); } catch (e) {} }
       });
