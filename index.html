@@ -1578,6 +1578,68 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     catch (e) { return fallback; }
   }
 
+  /* ---------------------------------------------------------
+   * 记录合并：多条客户端（多标签页/多设备）同时存在时，旧副本不能覆盖新值。
+   * 整条记录按 updatedAt 取新；status 单独按 statusUpdatedAt 裁决。
+   * --------------------------------------------------------- */
+  function issueStatusMeta(i) {
+    if (i.statusUpdatedAt) return { t: i.statusUpdatedAt, explicit: true };
+    return { t: i.updatedAt || i.createdAt || 0, explicit: false };
+  }
+  function mergeIssuePair(a, b) {
+    var aT = a.updatedAt || a.createdAt || 0;
+    var bT = b.updatedAt || b.createdAt || 0;
+    var base = bT > aT ? b : a;
+    var out = {}, k;
+    for (k in base) if (Object.prototype.hasOwnProperty.call(base, k)) out[k] = base[k];
+    var am = issueStatusMeta(a), bm = issueStatusMeta(b), aWins;
+    // 新版本会显式记录状态变更时间；旧数据没有该字段，视为更早，避免“旧副本改备注”把状态带回去
+    if (am.explicit !== bm.explicit) aWins = am.explicit;
+    else aWins = am.t >= bm.t;
+    if (aWins) {
+      out.status = a.status;
+      if (a.statusUpdatedAt) out.statusUpdatedAt = a.statusUpdatedAt; else delete out.statusUpdatedAt;
+    } else {
+      out.status = b.status;
+      if (b.statusUpdatedAt) out.statusUpdatedAt = b.statusUpdatedAt; else delete out.statusUpdatedAt;
+    }
+    return out;
+  }
+  // 本轮拉取中被远端删除的记录：写回本地缓存时不能从旧副本里补回来
+  var cloudDropped = {};
+  // 把 localStorage 里的记录并入内存后再整表落盘，任何一方都不能用旧副本盖掉新值
+  function mergeStoredIssues() {
+    var stored = load(KEYS.issues, null);
+    if (!Array.isArray(stored)) return;
+    var byId = {};
+    stored.forEach(function (r) { if (r && r.id) byId[r.id] = r; });
+    state.issues.forEach(function (i) {
+      var other = byId[i.id];
+      if (!other) return;
+      var m = mergeIssuePair(i, other);
+      Object.keys(i).forEach(function (key) { if (!Object.prototype.hasOwnProperty.call(m, key)) delete i[key]; });
+      Object.keys(m).forEach(function (key) { i[key] = m[key]; });
+      delete byId[i.id];
+    });
+    // 其它标签页新增、本页内存里还没有的记录补进来，避免整表写回时把它们冲掉
+    stored.forEach(function (r) {
+      if (!r || !r.id) return;
+      if (cloudDropped[r.id]) return;
+      if (!state.issues.some(function (x) { return x.id === r.id; })) state.issues.push(r);
+    });
+  }
+  function writeIssuesToStorage() {
+    try { localStorage.setItem(KEYS.issues, JSON.stringify(state.issues)); return true; }
+    catch (e) { return false; }
+  }
+  function saveIssues(silent) {
+    mergeStoredIssues();
+    var ok = writeIssuesToStorage();
+    if (!ok && !silent) toast(t('saveError'));
+    cloudQueuePush(KEYS.issues);
+    return ok;
+  }
+
   /* =========================================================
    * Supabase 云同步层
    * ---------------------------------------------------------
@@ -1801,7 +1863,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var rm = {};
     ids.forEach(function (id) { rm[id] = true; });
     state.issues = state.issues.filter(function (i) { return !rm[i.id]; });
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
     try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
     cloudQueuePush(KEYS.issues);
   }
@@ -1871,7 +1933,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     delete cloud.snap[id];
     cloud.restorePending[id] = Date.now();
     state.issues.unshift(rec.issue);
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
     try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
     cloudQueuePush(KEYS.issues);
     renderTrashBadge();
@@ -2097,6 +2159,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       if (r.deleted) {
         // 刚从回收站恢复、尚未推送成功的记录：保留本地，等 cloudPush 把 deleted 改回 false
         if (cloud.restorePending[r.id]) return;
+        cloudDropped[r.id] = true;
         if (idx !== -1) { state.issues.splice(idx, 1); changed = true; }
         delete cloud.snap[r.id];
         delete cloud.del[r.id];
@@ -2107,19 +2170,19 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       if (!remote.boardId) remote.boardId = DEFAULT_BOARD_ID;
       if (idx !== -1) {
         var local = state.issues[idx];
-        // 本地相对「上次确认已同步」有改动 → 保留本地，稍后由 cloudPush 推上去
-        if (cloud.snap[local.id] !== undefined &&
-            JSON.stringify(issueRowData(local)) !== cloud.snap[local.id]) return;
         // 本地已缓存的附件二进制保留，保证断网时附件仍可看
         var keep = {};
         (local.attachments || []).forEach(function (a) { if (a.dataUrl) keep[a.id] = a.dataUrl; });
         (remote.attachments || []).forEach(function (a) { if (!a.dataUrl && keep[a.id]) a.dataUrl = keep[a.id]; });
-        // 内容与本地完全一致 → 不替换、不标记变更，避免无谓的整页重绘
+        // 按 updatedAt 取新，status 单独按 statusUpdatedAt 裁决：旧副本不能再把新状态覆盖回去
         var beforeSlim = JSON.stringify(issueRowData(local));
         var afterSlim = JSON.stringify(issueRowData(remote));
+        var merged = mergeIssuePair(local, remote);
+        var mergedSlim = JSON.stringify(issueRowData(merged));
+        // 基线始终记录「远端当前值」：本地还有未推送差异时，下一轮由 cloudPush 补推
         cloud.snap[r.id] = afterSlim;
-        if (beforeSlim === afterSlim) return;
-        state.issues[idx] = remote;
+        if (mergedSlim === beforeSlim) return;
+        state.issues[idx] = merged;
       } else {
         state.issues.push(remote);
         cloud.snap[r.id] = JSON.stringify(issueRowData(remote));
@@ -2157,7 +2220,9 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   }
   // 合并只改内存，这里把结果写回本地缓存，避免 initData() 重新读取时丢失
   function cloudPersistIssues() {
-    try { localStorage.setItem(KEYS.issues, JSON.stringify(state.issues)); } catch (e) {}
+    mergeStoredIssues();
+    writeIssuesToStorage();
+    cloudDropped = {};
   }
   // 「上次确认已同步」基线必须落盘：否则刷新后脏检测失效，启动时的全量拉取会覆盖掉离线改动
   function cloudPersistSnap() {
@@ -2456,8 +2521,16 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     // 迁移旧数据：status 为 pending/resolved 字符串 → 已是 id，兼容
     // 补缺失字段
     state.issues.forEach(function (i) {
-      if (!i.status) i.status = 'wait-feedback';
-      if (!getStatusById(i.status)) i.status = 'wait-feedback';
+      var isActiveBoard = (i.boardId || DEFAULT_BOARD_ID) === ACTIVE_BOARD;
+      if (!i.status) {
+        i.status = 'wait-feedback';
+        delete i.statusUpdatedAt;
+      }
+      // 状态 id 只对当前表格校验：别的表格可能用当前表没有的状态，不能把它的状态强改成 Wait for feedback
+      if (isActiveBoard && !getStatusById(i.status)) {
+        i.status = 'wait-feedback';
+        delete i.statusUpdatedAt;
+      }
       if (!i.createdAt) i.createdAt = Date.now();
       if (!i.remarks) i.remarks = [];
       if (!i.followUp) i.followUp = { module:'', category:'', isdPic:'', iePic:'', ieRequirement:'', ieReqStatus:'', fsDate:'', fsStatus:'', devDate:'', devStatus:'', ftDate:'', ftStatus:'', deadline:'', deadlineStatus:'' };
@@ -3508,6 +3581,23 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (trashBtn) trashBtn.addEventListener('click', function (e) { e.stopPropagation(); openTrash(); });
   }
 
+  // 跨标签页同步：另一个标签页写入后，本页立即重读本地缓存，避免旧副本留在内存里继续回写
+  function bindCrossTabSync() {
+    var timer = null;
+    window.addEventListener('storage', function (e) {
+      if (!e.key) return; // storage.clear()
+      var isIssueKey = e.key === KEYS.issues || e.key === BASE_KEYS.issues;
+      if (!isIssueKey && cloudKvKeys().indexOf(e.key) === -1) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        timer = null;
+        if (isUserEditing()) return; // 用户正在输入：先不打断，下次写入时再合并
+        initData();
+        render();
+      }, 250);
+    });
+  }
+
   /* =========================================================
    * 表单
    * ========================================================= */
@@ -3615,6 +3705,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       typeId: typeId || null,
       occurredAt: toISOish(date, time),
       status: 'wait-feedback',
+      statusUpdatedAt: Date.now(),
       createdAt: Date.now(),
       remarks: [],
       attachments: newFormAttachments.slice(),
@@ -3622,7 +3713,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     });
     newFormAttachments = [];
     var aln = document.getElementById('attach-list-new'); if (aln) aln.innerHTML = '';
-    if (safeSave(KEYS.issues, state.issues, true)) {
+    if (saveIssues(true)) {
       showAlert(t('submitSuccess'));
       render();
       resetForm();
@@ -3679,7 +3770,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       issue.remarks = issue.remarks || [];
       issue.remarks.push({ id: uid(), content: content, createdAt: Date.now() });
       issue.updatedAt = Date.now();
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       render();
     } else if (action === 'del-remark') {
       var rid = btn.getAttribute('data-remark-id');
@@ -3690,7 +3781,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         if (rarr[k].id === rid) { rarr.splice(k, 1); break; }
       }
       issue.updatedAt = Date.now();
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       render();
     }
   });
@@ -3706,8 +3797,9 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (idx === -1) return;
     var oldStatus = state.issues[idx].status;
     state.issues[idx].status = sel.value;
+    state.issues[idx].statusUpdatedAt = Date.now();
     state.issues[idx].updatedAt = Date.now();
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
     onWaitStatusChanged(id, oldStatus, sel.value);
     render();
   });
@@ -3732,6 +3824,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     issue.level = card.querySelector('[data-edit="level"]').value;
     var oldStatus = issue.status;
     issue.status = card.querySelector('[data-edit="status"]').value;
+    // 只有用户真的改了状态才记状态时间，单纯改备注不能把状态判成“更新的一方”
+    if (issue.status !== oldStatus) issue.statusUpdatedAt = Date.now();
     issue.typeId = typeId || null;
     // Category 与「异常类型」同一字段：随类型选择同步写入，保证看板与导出一致
     if (!issue.followUp) issue.followUp = {};
@@ -3741,7 +3835,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var time = card.querySelector('[data-edit="time"]').value;
     issue.occurredAt = toISOish(date, time);
     issue.updatedAt = Date.now();
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
     onWaitStatusChanged(issue.id, oldStatus, issue.status);
     state.editingId = null;
     render();
@@ -3792,7 +3886,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     }
     if (changed) {
       state.issues[idx].updatedAt = Date.now();
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       if (field === 'category') renderStats(); // 类型/分类变更后立即刷新看板计数
     }
     // Req8: 隐藏格式工具条（延迟，避免点击工具条按钮时误触）
@@ -3931,7 +4025,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       });
       issue.updatedAt = Date.now();
     });
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
     render();
     toast(t('batchCenterDone'));
   });
@@ -3956,7 +4050,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (css) state.issues[ii].followUp[styleKey] = css;
     else delete state.issues[ii].followUp[styleKey];
     state.issues[ii].updatedAt = Date.now();
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
   }
   // 快捷键 Ctrl+B
   document.addEventListener('keydown', function (e) {
@@ -3984,7 +4078,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     state.issues[idx].updatedAt = Date.now();
     // 播放器内下拉字体保持默认黑色（需求：播放器下拉不加状态颜色）
     if (!sel.closest('.player-slide')) sel.style.color = fuStatusColor(sel.value);
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
   });
 
   /* =========================================================
@@ -4182,7 +4276,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       }).catch(function () { tooLarge++; }).then(function () {
         processed++;
         if (processed === arr.length) {
-          if (added) { state.issues[idx].updatedAt = Date.now(); safeSave(KEYS.issues, state.issues); }
+          if (added) { state.issues[idx].updatedAt = Date.now(); saveIssues(); }
           done && done(added, tooLarge);
         }
       });
@@ -4313,7 +4407,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     } else {
       if (state.issues[idx].detailHtml != null) { delete state.issues[idx].detailHtml; changed = true; }
     }
-    if (changed) { state.issues[idx].updatedAt = Date.now(); safeSave(KEYS.issues, state.issues); }
+    if (changed) { state.issues[idx].updatedAt = Date.now(); saveIssues(); }
   }, true);
   // 主状态下拉变更（跟进状态下拉由 document 级 select[data-fu] 处理器接管）
   playerMask.addEventListener('change', function (e) {
@@ -4325,9 +4419,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (e.target.hasAttribute('data-pl-status')) {
       var oldStatus = state.issues[idx].status;
       state.issues[idx].status = e.target.value;
+      state.issues[idx].statusUpdatedAt = Date.now();
       state.issues[idx].updatedAt = Date.now();
       // 播放器内下拉字体保持默认黑色
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       onWaitStatusChanged(id, oldStatus, e.target.value);
       renderPlayerSlide();
     }
@@ -4382,7 +4477,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       var aid = item.getAttribute('data-attach-id');
       state.issues[idx].attachments = (state.issues[idx].attachments || []).filter(function (a) { return a.id !== aid; });
       state.issues[idx].updatedAt = Date.now();
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       if (slide) renderPlayerSlide(); else render();
       return;
     }
@@ -4429,7 +4524,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       var aid = item.getAttribute('data-attach-id');
       state.issues[idx].attachments = (state.issues[idx].attachments || []).filter(function (a) { return a.id !== aid; });
       state.issues[idx].updatedAt = Date.now();
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       render();
       return;
     }
@@ -4483,7 +4578,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       if (!state.issues[idx].remarks) state.issues[idx].remarks = [];
       state.issues[idx].remarks.push({ id: uid(), content: content, createdAt: Date.now() });
       state.issues[idx].updatedAt = Date.now();
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       renderPlayerSlide();
       var inp = document.querySelector('.player-slide [data-action="remark-input"]');
       if (inp) inp.focus();
@@ -4497,7 +4592,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         if (rarr[k].id === rid) { rarr.splice(k, 1); break; }
       }
       state.issues[idx].updatedAt = Date.now();
-      safeSave(KEYS.issues, state.issues);
+      saveIssues();
       renderPlayerSlide();
     }
   });
@@ -4544,7 +4639,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         if (val) state.issues[idx].descriptionZh = val;
         else delete state.issues[idx].descriptionZh;
         state.issues[idx].updatedAt = Date.now();
-        safeSave(KEYS.issues, state.issues);
+        saveIssues();
         render();
       } else if (action === 'cancel') {
         wrap.remove();
@@ -4822,7 +4917,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     });
     fs.name = newName;
     safeSave(KEYS.fuStatuses, state.fuStatuses);
-    if (migrated) safeSave(KEYS.issues, state.issues);
+    if (migrated) saveIssues();
     renderFuStatusList();
     render();
   });
@@ -5125,13 +5220,13 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         id: uid(), boardId: ACTIVE_BOARD, customer: r.system, description: r.detail, level: 'medium',
         typeId: typeMap[r.category] || '',
         occurredAt: new Date(now - (newRecords.length - i) * 60000).toISOString().slice(0, 16),
-        status: 'wait-feedback', createdAt: now - (newRecords.length - i) * 60000, updatedAt: now - (newRecords.length - i) * 60000,
+        status: 'wait-feedback', statusUpdatedAt: now - (newRecords.length - i) * 60000, createdAt: now - (newRecords.length - i) * 60000, updatedAt: now - (newRecords.length - i) * 60000,
         remarks: r.statusRemark ? [{ id: uid(), content: r.statusRemark, createdAt: now }] : [],
         followUp: { module: r.module, category: r.category, isdPic: r.isdPic, iePic: r.iePic, ieRequirement: r.ieReq, ieReqStatus: '', fsDate: r.fsDate, fsStatus: r.fsStatus, devDate: r.devDate, devStatus: r.devStatus, ftDate: r.ftDate, ftStatus: r.ftStatus, deadline: r.deadline, deadlineStatus: '' }
       };
       state.issues.push(issue);
     });
-    safeSave(KEYS.issues, state.issues);
+    saveIssues();
     render();
     renderTypeList();
     renderStatusList();
@@ -5230,6 +5325,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     applyI18n();
     bindBoardSwitcher();
     bindTopbarMenus();
+    bindCrossTabSync();
     document.getElementById('logo-fap').src = LOGO_FAP;
     document.getElementById('logo-company').src = LOGO_COMPANY;
     document.getElementById('stats-scope-toggle').checked = state.statsFollowFilter;
