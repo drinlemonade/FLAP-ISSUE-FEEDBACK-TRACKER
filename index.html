@@ -1863,7 +1863,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var rm = {};
     ids.forEach(function (id) { rm[id] = true; });
     state.issues = state.issues.filter(function (i) { return !rm[i.id]; });
-    saveIssues();
+    // 刚移除的记录不能被 mergeStoredIssues 从旧缓存里补回来，否则删除会当场失效
+    ids.forEach(function (id) { cloudDropped[id] = true; });
+    var ok = saveIssues();
+    if (ok) ids.forEach(function (id) { delete cloudDropped[id]; });
     try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
     cloudQueuePush(KEYS.issues);
   }
