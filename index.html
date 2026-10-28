@@ -1624,7 +1624,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     // 其它标签页新增、本页内存里还没有的记录补进来，避免整表写回时把它们冲掉
     stored.forEach(function (r) {
       if (!r || !r.id) return;
-      if (cloudDropped[r.id]) return;
+      if (cloudDropped[r.id] || cloud.tomb[r.id]) return;
       if (!state.issues.some(function (x) { return x.id === r.id; })) state.issues.push(r);
     });
   }
@@ -1656,8 +1656,13 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   var CLOUD_SNAP_STORE = 'feedback-issues-cloud-snap';
   var CLOUD_KV_SNAP_STORE = 'feedback-issues-cloud-kv-snap';
   var CLOUD_DELETED_STORE = 'feedback-issues-cloud-deleted';
-  var CLOUD_POLL_MS = 15000;
+  var CLOUD_TOMB_STORE = 'feedback-issues-cloud-tomb';
+  // 轮询间隔（档位 C：前台秒级 2s，后台保留 15s 省配额；写入后 5s 内追加一次立即确认）
+  var CLOUD_POLL_FOREGROUND_MS = 2000;
+  var CLOUD_POLL_BACKGROUND_MS = 15000;
   var CLOUD_PUSH_DEBOUNCE_MS = 600;
+  var CLOUD_PUSH_CONFIRM_WINDOW_MS = 5000;  // 本地写入后 5s 内，push 成功即追加一次 pull，秒级确认云端落库
+  var CLOUD_PULL_LOOKBACK_MS = 2000;       // 拉取回退窗口：轮询已 2s 节奏，容错即可收紧
 
   // 上云的共享配置（其余 localStorage 键为每浏览器独立的偏好，不上云）
   var CLOUD_KV_SCOPED = ['statuses', 'fuStatuses', 'types', 'statOrder', 'statRows', 'customCards'];
@@ -1681,10 +1686,13 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     snap: {},          // issueId -> JSON（上次确认已同步的 data，附件只含元数据）
     kvSnap: {},        // localStorage key -> JSON
     del: {},           // 明确的删除意图：issueId -> 时间戳（本地删除先入队，再由 cloudPush 软删云端）
+    tomb: load(CLOUD_TOMB_STORE, {}) || {},  // 持久墓碑：已删除的记录 id。任何旧副本都不能把它补回/补推，仅回收站恢复时清除
     restorePending: {}, // 刚恢复的记录：拉取时若远端仍为 deleted=true，先不删除本地
     pushedAttach: {},  // 已上传到远端的附件 id
     pushTimer: null,
-    pollTimer: null
+    pollTimer: null,
+    lastLocalWrite: 0,     // 最近一次本地写入时间戳：用于判断是否需要写入后立即 pull 确认
+    confirmTimer: null     // 写入后立即 pull 的一次性定时器
   };
 
   function cloudHeaders(extra) {
@@ -1818,8 +1826,17 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function cloudQueuePush(key) {
     if (!cloud.on || !cloud.booted) return;
     if (key !== KEYS.issues && cloudKvKeys().indexOf(key) === -1) return;
+    cloud.lastLocalWrite = Date.now();
     clearTimeout(cloud.pushTimer);
-    cloud.pushTimer = setTimeout(function () { cloudPush(); }, CLOUD_PUSH_DEBOUNCE_MS);
+    cloud.pushTimer = setTimeout(function () {
+      cloudPush().then(function () {
+        // 写入后秒级确认：5s 内有本地写入，则立即追加一次 pull，让本次改动秒级落库并回拉最新
+        if (Date.now() - cloud.lastLocalWrite <= CLOUD_PUSH_CONFIRM_WINDOW_MS) {
+          clearTimeout(cloud.confirmTimer);
+          cloud.confirmTimer = setTimeout(cloudPullDelta, 200);
+        }
+      });
+    }, CLOUD_PUSH_DEBOUNCE_MS);
   }
   function cloudUpsertIssue(i, slim, nowIso) {
     return cloudFetch('/issues?on_conflict=id', {
@@ -1859,7 +1876,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function cloudQueueDelete(ids) {
     if (!ids || !ids.length) return;
     var nowIso = new Date().toISOString();
-    ids.forEach(function (id) { cloud.del[id] = nowIso; });
+    ids.forEach(function (id) { cloud.del[id] = nowIso; cloud.tomb[id] = Date.now(); });
     var rm = {};
     ids.forEach(function (id) { rm[id] = true; });
     state.issues = state.issues.filter(function (i) { return !rm[i.id]; });
@@ -1868,6 +1885,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var ok = saveIssues();
     if (ok) ids.forEach(function (id) { delete cloudDropped[id]; });
     try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
+    try { localStorage.setItem(CLOUD_TOMB_STORE, JSON.stringify(cloud.tomb)); } catch (e) {}
     cloudQueuePush(KEYS.issues);
   }
   // 删除云端共享配置键（删除表格时清理该表的分片配置）
@@ -1931,13 +1949,15 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     }
     list.splice(idx, 1);
     saveTrash(list);
-    // 云端：撤销删除意图 + 让下一次推送以 deleted:false 覆盖远端软删行
+    // 云端：撤销删除意图与墓碑 + 让下一次推送以 deleted:false 覆盖远端软删行
     delete cloud.del[id];
+    delete cloud.tomb[id];
     delete cloud.snap[id];
     cloud.restorePending[id] = Date.now();
     state.issues.unshift(rec.issue);
     saveIssues();
     try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
+    try { localStorage.setItem(CLOUD_TOMB_STORE, JSON.stringify(cloud.tomb)); } catch (e) {}
     cloudQueuePush(KEYS.issues);
     renderTrashBadge();
     return true;
@@ -2119,6 +2139,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var nowIso = new Date().toISOString();
 
     state.issues.forEach(function (i) {
+      // 已删除/待删除的记录绝不回推：否则任何残留旧副本都会把云端行翻回 alive
+      if (cloud.del[i.id] || cloud.tomb[i.id]) return;
       var slim = JSON.stringify(issueRowData(i));
       if (cloud.snap[i.id] !== slim) ops.push(cloudUpsertIssue(i, slim, nowIso));
     });
@@ -2156,13 +2178,24 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function cloudMergeIssues(rows) {
     var changed = false;
     rows.forEach(function (r) {
+      // 墓碑记录：绝不拉回本地；若远端被其它旧副本翻回 alive，重新入队软删（自愈）
+      if (cloud.tomb[r.id]) {
+        delete cloud.snap[r.id];
+        var ti = state.issues.findIndex(function (x) { return x.id === r.id; });
+        if (ti !== -1) { state.issues.splice(ti, 1); changed = true; }
+        if (r.deleted) delete cloud.del[r.id];
+        else cloud.del[r.id] = new Date().toISOString();
+        return;
+      }
       // 已在删除队列里的记录：不再拉回本地，避免删除尚未推送成功时被"复活"
       if (cloud.del[r.id]) { delete cloud.snap[r.id]; return; }
       var idx = state.issues.findIndex(function (x) { return x.id === r.id; });
       if (r.deleted) {
         // 刚从回收站恢复、尚未推送成功的记录：保留本地，等 cloudPush 把 deleted 改回 false
         if (cloud.restorePending[r.id]) return;
+        // 远端确认已删：记持久墓碑，此后任何旧副本都不能再把它补回/补推
         cloudDropped[r.id] = true;
+        if (!cloud.tomb[r.id]) cloud.tomb[r.id] = Date.now();
         if (idx !== -1) { state.issues.splice(idx, 1); changed = true; }
         delete cloud.snap[r.id];
         delete cloud.del[r.id];
@@ -2232,6 +2265,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     try { localStorage.setItem(CLOUD_SNAP_STORE, JSON.stringify(cloud.snap)); } catch (e) {}
     try { localStorage.setItem(CLOUD_KV_SNAP_STORE, JSON.stringify(cloud.kvSnap)); } catch (e) {}
     try { localStorage.setItem(CLOUD_DELETED_STORE, JSON.stringify(cloud.del)); } catch (e) {}
+    try { localStorage.setItem(CLOUD_TOMB_STORE, JSON.stringify(cloud.tomb)); } catch (e) {}
   }
   // 用户正在输入时推迟重绘：避免把未提交的下拉选择、单元格内容冲掉
   function isUserEditing() {
@@ -2249,8 +2283,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   function cloudPullDelta() {
     if (!cloud.on || !cloud.booted || cloud.pulling) return Promise.resolve();
     cloud.pulling = true;
-    // 回退 5s 容错：updated_at 由各设备本机时钟写入，时钟偏差会漏掉刚产生的更新；合并幂等，多取无害
-    var since = new Date((cloud.lastSync || 0) - 5000).toISOString();
+    // 回退容错窗口：轮询已 2s 节奏，收紧到 2s 即可覆盖时钟偏差，避免每次拉到重复数据
+    var since = new Date((cloud.lastSync || 0) - CLOUD_PULL_LOOKBACK_MS).toISOString();
     return Promise.all([
       cloudJson('/issues?select=id,data,updated_at,deleted&updated_at=gt.' + since),
       cloudJson('/app_kv?select=key,value&updated_at=gt.' + since)
@@ -2290,13 +2324,19 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   }
   function cloudStartPoll() {
     if (cloud.pollTimer) clearInterval(cloud.pollTimer);
-    cloud.pollTimer = setInterval(function () {
-      if (document.hidden) return;
-      cloudPush().then(cloudPullDelta);
-    }, CLOUD_POLL_MS);
+    // 档位 C：前台 2s 秒级轮询，后台 15s 省配额；每次切换可见性都重建定时器
+    var tick = function () { cloudPush().then(cloudPullDelta); };
+    var startTimer = function () {
+      if (cloud.pollTimer) clearInterval(cloud.pollTimer);
+      var interval = document.hidden ? CLOUD_POLL_BACKGROUND_MS : CLOUD_POLL_FOREGROUND_MS;
+      cloud.pollTimer = setInterval(tick, interval);
+    };
+    startTimer();
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) cloudPush().then(cloudPullDelta);
+      if (!document.hidden) { tick(); }          // 切到前台立即同步一次（含写入后确认）
+      startTimer();                                // 重建定时器（2s ↔ 15s）
     });
+    window.addEventListener('online', function () { tick(); });
   }
   function cloudStart() {
     if (!cloud.on) return; // 未配置 Supabase → 保持纯本地模式
@@ -2304,6 +2344,9 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     cloud.snap = load(CLOUD_SNAP_STORE, {}) || {};
     cloud.kvSnap = load(CLOUD_KV_SNAP_STORE, {}) || {};
     cloud.del = load(CLOUD_DELETED_STORE, {}) || {};
+    cloud.tomb = load(CLOUD_TOMB_STORE, {}) || {};
+    // 旧版本遗留的删除意图直接升级为墓碑：这些记录软删成功后旧逻辑会失去保护
+    Object.keys(cloud.del).forEach(function (id) { if (!cloud.tomb[id]) cloud.tomb[id] = Date.now(); });
     var saved = null;
     try { saved = sessionStorage.getItem(CLOUD_PASS_STORE); } catch (e) {}
     if (!saved) { cloudAskPass(function () { cloudBoot(); }); return; }
@@ -2476,6 +2519,9 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
    * ========================================================= */
   function initData() {
     state.issues = load(KEYS.issues, []);
+    // 墓碑过滤：localStorage 里残留的已删记录（历史版本写回的旧副本）启动时直接剔除
+    var tombIds = Object.keys(cloud.tomb || {});
+    if (tombIds.length) state.issues = state.issues.filter(function (i) { return i && i.id && !cloud.tomb[i.id]; });
 
     // 多表格：历史记录（无 boardId）全部归入默认表，并回写本地缓存
     var boardFixed = false;
