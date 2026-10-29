@@ -397,7 +397,19 @@ html[data-theme="dark"] .level-high   { background: #450a0a; color: #fca5a5; bor
 .description { font-size: 14px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .issue-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .meta-item { font-size: 12px; color: var(--text-2); }
-.edited-tag { font-size: 11px; color: var(--text-3); cursor: help; }
+.edited-tag { font-size: 11px; color: var(--text-3); cursor: pointer; }
+.edited-tag:hover { color: var(--brand-blue); text-decoration: underline; }
+/* 编辑日志弹窗 */
+.log-body { max-height: 60vh; overflow-y: auto; margin-top: 10px; }
+.log-list, .log-changes { list-style: none; }
+.log-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.log-item:last-child { border-bottom: none; }
+.log-time { font-size: 12px; color: var(--text-3); margin-bottom: 2px; }
+.log-changes { font-size: 13px; }
+.log-change { padding: 1px 0; word-break: break-all; }
+.log-field { color: var(--text-2); margin-right: 4px; }
+.log-from { color: var(--text-3); }
+.log-to { font-weight: 500; }
 .issue-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .issue.resolved { opacity: 0.55; }
 .issue.resolved .description { text-decoration: line-through; }
@@ -1423,7 +1435,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         category:'Category', isdPic:'ISD PIC', iePic:'IE PIC', ieReq:'IE Requirement',
         fs:'FS', dev:'DEV', ft:'FT', deadline:'Deadline' },
       editIssue: '编辑异常记录', editFormTitle: '编辑记录',
-      categoryAutoHint: '自动取自异常类型，点击可自行输入'
+      categoryAutoHint: '自动取自异常类型，点击可自行输入',
+      editLog: '编辑记录', logCreate: '创建了该记录', logEmpty: '暂无编辑记录', lastEdit: '最近编辑',
+      fieldIeReqStatus: 'IE Req状态', fieldFsDate: 'FS日期', fieldDevDate: 'DEV日期',
+      fieldFtDate: 'FT日期', fieldDeadlineStatus: 'Deadline状态'
     },
     en: {
       appTitle: 'Factory Feedback Issue Tracker',
@@ -1526,7 +1541,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
         category:'Category', isdPic:'ISD PIC', iePic:'IE PIC', ieReq:'IE Requirement',
         fs:'FS', dev:'DEV', ft:'FT', deadline:'Deadline' },
       editIssue: 'Edit Issue', editFormTitle: 'Edit issue',
-      categoryAutoHint: 'Auto-filled from issue type. Click to type your own.'
+      categoryAutoHint: 'Auto-filled from issue type. Click to type your own.',
+      editLog: 'Edit History', logCreate: 'Created this record', logEmpty: 'No edits yet', lastEdit: 'Last edited',
+      fieldIeReqStatus: 'IE Req Status', fieldFsDate: 'FS Date', fieldDevDate: 'DEV Date',
+      fieldFtDate: 'FT Date', fieldDeadlineStatus: 'Deadline Status'
     }
   };
 
@@ -1603,7 +1621,136 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       out.status = b.status;
       if (b.statusUpdatedAt) out.statusUpdatedAt = b.statusUpdatedAt; else delete out.statusUpdatedAt;
     }
+    // 编辑日志不做“新旧二选一”，两份副本的日志按时间去重合并
+    var mh = mergeHistory(a.history, b.history);
+    if (mh.length) out.history = mh; else delete out.history;
     return out;
+  }
+
+  /* =========================================================
+   * 编辑日志（每条记录保留最近 HISTORY_LIMIT 条变更）
+   * ========================================================= */
+  var HISTORY_LIMIT = 20;
+  var HISTORY_FIELDS = [
+    { key: 'customer', labelKey: 'fieldCustomer' },
+    { key: 'description', labelKey: 'description' },
+    { key: 'descriptionZh', labelKey: 'editZh' },
+    { key: 'level', labelKey: 'fieldLevel' },
+    { key: 'status', labelKey: 'fieldStatus' },
+    { key: 'typeId', labelKey: 'fieldType' },
+    { key: 'occurredAt', labelKey: 'occurredAt' },
+    { key: 'followUp.module', labelKey: 'fieldModule' },
+    { key: 'followUp.category', labelKey: 'fieldCategory' },
+    { key: 'followUp.isdPic', labelKey: 'fieldIsdPic' },
+    { key: 'followUp.iePic', labelKey: 'fieldIePic' },
+    { key: 'followUp.ieRequirement', labelKey: 'fieldIeReq' },
+    { key: 'followUp.ieReqStatus', labelKey: 'fieldIeReqStatus' },
+    { key: 'followUp.fsDate', labelKey: 'fieldFsDate' },
+    { key: 'followUp.fsStatus', labelKey: 'fieldFsStatus' },
+    { key: 'followUp.devDate', labelKey: 'fieldDevDate' },
+    { key: 'followUp.devStatus', labelKey: 'fieldDevStatus' },
+    { key: 'followUp.ftDate', labelKey: 'fieldFtDate' },
+    { key: 'followUp.ftStatus', labelKey: 'fieldFtStatus' },
+    { key: 'followUp.deadline', labelKey: 'fieldDeadline' },
+    { key: 'followUp.deadlineStatus', labelKey: 'fieldDeadlineStatus' }
+  ];
+  function histGet(obj, path) {
+    var parts = path.split('.'), v = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (v == null) return undefined;
+      v = v[parts[i]];
+    }
+    return v;
+  }
+  function issueSnapshot(issue) {
+    var snap = {};
+    HISTORY_FIELDS.forEach(function (f) { snap[f.key] = histGet(issue, f.key); });
+    return snap;
+  }
+  // 修改前快照、修改后调用：diff 出变化字段写入 history；无变化不记
+  function appendHistory(issue, before) {
+    if (!issue || !before) return;
+    var changes = [];
+    HISTORY_FIELDS.forEach(function (f) {
+      var from = before[f.key], to = histGet(issue, f.key);
+      if (from == null) from = '';
+      if (to == null) to = '';
+      if (String(from) === String(to)) return;
+      changes.push({ k: f.key, f: String(from).slice(0, 300), to: String(to).slice(0, 300) });
+    });
+    if (!changes.length) return;
+    issue.history = issue.history || [];
+    issue.history.push({ t: Date.now(), c: changes });
+    if (issue.history.length > HISTORY_LIMIT) issue.history = issue.history.slice(issue.history.length - HISTORY_LIMIT);
+  }
+  // 多设备合并：按时间+首条变更去重、升序、裁到上限
+  function mergeHistory(h1, h2) {
+    var seen = {}, out = [];
+    (h1 || []).concat(h2 || []).forEach(function (e) {
+      if (!e || !e.t) return;
+      var key = e.t + '|' + (e.op || '') + '|' + (e.c && e.c.length ? e.c[0].k + '|' + e.c[0].f + '|' + e.c[0].to : '');
+      if (seen[key]) return;
+      seen[key] = 1;
+      out.push(e);
+    });
+    out.sort(function (x, y) { return x.t - y.t; });
+    if (out.length > HISTORY_LIMIT) out = out.slice(out.length - HISTORY_LIMIT);
+    return out;
+  }
+  function histFieldLabel(key) {
+    for (var i = 0; i < HISTORY_FIELDS.length; i++) {
+      if (HISTORY_FIELDS[i].key === key) return t(HISTORY_FIELDS[i].labelKey);
+    }
+    return key;
+  }
+  function histValText(key, val) {
+    if (val === '' || val == null) return '—';
+    if (key === 'level') return t(val === 'low' ? 'levelLow' : val === 'medium' ? 'levelMedium' : 'levelHigh');
+    if (key === 'status') { var s = getStatusById(val); return s ? statusName(s) : val; }
+    if (key === 'typeId') { var tp = getTypeById(val); return tp ? typeName(tp) : val; }
+    if (key === 'occurredAt') return formatTime(val);
+    return val;
+  }
+  function historyEntrySummary(e) {
+    if (!e) return '';
+    if (e.op === 'create') return t('logCreate');
+    var cs = e.c || [];
+    if (!cs.length) return '';
+    var c0 = cs[0];
+    var s = histFieldLabel(c0.k) + ': ' + histValText(c0.k, c0.f) + ' → ' + histValText(c0.k, c0.to);
+    if (cs.length > 1) s += ' (+' + (cs.length - 1) + ')';
+    return s;
+  }
+  // 点击「已编辑」弹出完整变更时间线（倒序）
+  function showIssueHistory(issue) {
+    var mask = document.createElement('div');
+    mask.className = 'modal-mask show';
+    var list = (issue.history || []).slice().sort(function (a, b) { return b.t - a.t; });
+    var body;
+    if (!list.length) {
+      body = '<div style="color:var(--text-3);font-size:13px;padding:12px 0">' + escapeHtml(t('logEmpty')) + '</div>';
+    } else {
+      body = '<ul class="log-list">' + list.map(function (e) {
+        var lines = e.op === 'create'
+          ? '<li class="log-change">' + escapeHtml(t('logCreate')) + '</li>'
+          : (e.c || []).map(function (c) {
+              return '<li class="log-change"><span class="log-field">' + escapeHtml(histFieldLabel(c.k)) + '</span>' +
+                '<span class="log-from">' + escapeHtml(histValText(c.k, c.f)) + '</span>' +
+                ' → <span class="log-to">' + escapeHtml(histValText(c.k, c.to)) + '</span></li>';
+            }).join('');
+        return '<li class="log-item"><div class="log-time">' + formatTime(e.t) + '</div><ul class="log-changes">' + lines + '</ul></li>';
+      }).join('') + '</ul>';
+    }
+    mask.innerHTML =
+      '<div class="modal" style="max-width:520px">' +
+        '<h3>' + escapeHtml(t('editLog')) + '</h3>' +
+        '<div class="log-body">' + body + '</div>' +
+        '<div class="modal-footer"><button type="button" class="btn" id="log-close">' + escapeHtml(t('close')) + '</button></div>' +
+      '</div>';
+    document.body.appendChild(mask);
+    function close() { mask.remove(); }
+    mask.querySelector('#log-close').addEventListener('click', close);
+    mask.addEventListener('click', function (ev) { if (ev.target === mask) close(); });
   }
   // 本轮拉取中被远端删除的记录：写回本地缓存时不能从旧副本里补回来
   var cloudDropped = {};
@@ -3283,6 +3430,14 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       var tp = i.typeId ? getTypeById(i.typeId) : null;
       var resolved = st && st.isResolvedLike;
       var edited = !!i.updatedAt;
+      // 悬停提示：有日志则显示最新一条摘要，否则回退到 updatedAt 时间
+      var editedTip = '';
+      if (edited) {
+        var lastLog = (i.history && i.history.length) ? i.history[i.history.length - 1] : null;
+        editedTip = lastLog
+          ? t('lastEdit') + ': ' + formatTime(lastLog.t) + '\n' + historyEntrySummary(lastLog)
+          : t('edited') + ': ' + formatTime(i.updatedAt);
+      }
       var remarksCount = (i.remarks || []).length;
       var expanded = state.expandedRemarks[i.id];
 
@@ -3295,7 +3450,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
             '<span class="badge level-' + i.level + '">' + t(i.level === 'low' ? 'levelLow' : i.level === 'medium' ? 'levelMedium' : 'levelHigh') + '</span>' +
             (tp ? '<span class="badge" style="background:' + hexA(tp.color,0.15) + ';color:' + tp.color + ';border-color:' + hexA(tp.color,0.3) + '">' + escapeHtml(typeName(tp)) + '</span>' : '') +
             '<span class="badge" style="background:' + hexA(st.color,0.15) + ';color:' + st.color + ';border-color:' + hexA(st.color,0.35) + '">' + escapeHtml(statusName(st)) + '</span>' +
-            (edited ? '<span class="edited-tag" title="' + escapeHtml(t('edited') + ': ' + formatTime(i.updatedAt)) + '">✎ ' + t('edited') + '</span>' : '') +
+            (edited ? '<span class="edited-tag" data-action="edit-log" title="' + escapeHtml(editedTip) + '">✎ ' + t('edited') + '</span>' : '') +
             '<span class="occurred-at">' + formatTime(i.occurredAt) + '</span>' +
           '</div>' +
           '<div class="description">' + escapeHtml(descDisplay(i)) + '</div>' +
@@ -3765,6 +3920,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       status: 'wait-feedback',
       statusUpdatedAt: Date.now(),
       createdAt: Date.now(),
+      history: [{ t: Date.now(), op: 'create', c: [] }],
       remarks: [],
       attachments: newFormAttachments.slice(),
       followUp: { module:'', category: typeObj ? typeObj.name : '', isdPic:'', iePic:'', ieRequirement:'', fsDate:'', fsStatus:'', devDate:'', devStatus:'', ftDate:'', ftStatus:'', deadline:'' }
@@ -3841,6 +3997,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       issue.updatedAt = Date.now();
       saveIssues();
       render();
+    } else if (action === 'edit-log') {
+      showIssueHistory(issue);
     }
   });
 
@@ -3854,9 +4012,11 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var idx = state.issues.findIndex(function (i) { return i.id === id; });
     if (idx === -1) return;
     var oldStatus = state.issues[idx].status;
+    var before = issueSnapshot(state.issues[idx]);
     state.issues[idx].status = sel.value;
     state.issues[idx].statusUpdatedAt = Date.now();
     state.issues[idx].updatedAt = Date.now();
+    appendHistory(state.issues[idx], before);
     saveIssues();
     onWaitStatusChanged(id, oldStatus, sel.value);
     render();
@@ -3872,6 +4032,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       toast(!customer ? t('errCustomer') : !description ? t('errDesc') : t('errType'));
       return;
     }
+    var before = issueSnapshot(issue);
     issue.customer = customer;
     issue.description = description;
     var zhVal = card.querySelector('[data-edit="descriptionZh"]');
@@ -3893,6 +4054,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var time = card.querySelector('[data-edit="time"]').value;
     issue.occurredAt = toISOish(date, time);
     issue.updatedAt = Date.now();
+    appendHistory(issue, before);
     saveIssues();
     onWaitStatusChanged(issue.id, oldStatus, issue.status);
     state.editingId = null;
@@ -3920,6 +4082,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var oldVal = state.issues[idx].followUp[field];
     var oldHtml = state.issues[idx].followUp[htmlKey];
     var changed = false;
+    var before = issueSnapshot(state.issues[idx]);
     // 跟进表直接改 Category 时同步「异常类型」(typeId)，保证看板统计与列表一致
     if (field === 'category') {
       var tpMatch = null;
@@ -3944,6 +4107,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     }
     if (changed) {
       state.issues[idx].updatedAt = Date.now();
+      appendHistory(state.issues[idx], before);
       saveIssues();
       if (field === 'category') renderStats(); // 类型/分类变更后立即刷新看板计数
     }
@@ -4132,8 +4296,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var idx = state.issues.findIndex(function (i) { return i.id === id; });
     if (idx === -1) return;
     if (FU_FIELDS.indexOf(field) === -1) return;
+    var before = issueSnapshot(state.issues[idx]);
     state.issues[idx].followUp[field] = sel.value;
     state.issues[idx].updatedAt = Date.now();
+    appendHistory(state.issues[idx], before);
     // 播放器内下拉字体保持默认黑色（需求：播放器下拉不加状态颜色）
     if (!sel.closest('.player-slide')) sel.style.color = fuStatusColor(sel.value);
     saveIssues();
@@ -4455,6 +4621,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var txt = d.textContent.trim();
     var html = d.innerHTML;
     var changed = false;
+    var before = issueSnapshot(state.issues[idx]);
     // 按当前语言决定存入哪个字段：中文→修正译文 descriptionZh；英文→原文 description
     var targetField = lang === 'en' ? 'description' : 'descriptionZh';
     if (state.issues[idx][targetField] !== txt) { state.issues[idx][targetField] = txt; changed = true; }
@@ -4465,7 +4632,11 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     } else {
       if (state.issues[idx].detailHtml != null) { delete state.issues[idx].detailHtml; changed = true; }
     }
-    if (changed) { state.issues[idx].updatedAt = Date.now(); saveIssues(); }
+    if (changed) {
+      state.issues[idx].updatedAt = Date.now();
+      appendHistory(state.issues[idx], before);
+      saveIssues();
+    }
   }, true);
   // 主状态下拉变更（跟进状态下拉由 document 级 select[data-fu] 处理器接管）
   playerMask.addEventListener('change', function (e) {
@@ -4476,9 +4647,11 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (idx === -1) return;
     if (e.target.hasAttribute('data-pl-status')) {
       var oldStatus = state.issues[idx].status;
+      var before = issueSnapshot(state.issues[idx]);
       state.issues[idx].status = e.target.value;
       state.issues[idx].statusUpdatedAt = Date.now();
       state.issues[idx].updatedAt = Date.now();
+      appendHistory(state.issues[idx], before);
       // 播放器内下拉字体保持默认黑色
       saveIssues();
       onWaitStatusChanged(id, oldStatus, e.target.value);
