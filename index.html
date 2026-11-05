@@ -802,6 +802,33 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
 .modal h3 { font-size: 16px; margin-bottom: 14px; }
 .modal-hint { font-size: 12px; color: var(--text-2); line-height: 1.5; margin-bottom: 12px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ============== 集成（Pipedream Connect） ============== */
+:root { --pd-ok: #217346; --pd-ok-bg: rgba(33, 115, 70, .14); }
+html[data-theme="dark"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14); }
+@media (prefers-color-scheme: dark) {
+  html[data-theme="auto"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14); }
+}
+.pd-hint {
+  font-size: 12px; color: var(--text-2); line-height: 1.55;
+  background: var(--card-2); border: 1px dashed var(--border-2);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+  word-break: break-all;
+}
+.pd-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.pd-empty { font-size: 13px; color: var(--text-3); padding: 10px 0; }
+.pd-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--card-2);
+}
+.pd-row .pd-main { flex: 1; min-width: 0; }
+.pd-row .pd-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.pd-row .pd-sub { font-size: 11px; color: var(--text-3); word-break: break-all; }
+.pd-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.pd-badge.ok { color: var(--pd-ok); background: var(--pd-ok-bg); }
+.pd-badge.bad { color: var(--danger); background: var(--danger-bg); }
+.pd-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .settings-item {
   display: flex; align-items: center; gap: 8px; padding: 8px 0;
   border-bottom: 1px solid var(--border);
@@ -942,6 +969,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
           <button class="settings-item" id="btn-status-settings" data-i18n="statusSettings">状态设置</button>
           <button class="settings-item" id="btn-type-settings" data-i18n="typeSettings">类型设置</button>
           <button class="settings-item" id="btn-fu-status-settings" data-i18n="fuStatusSettings">跟进状态设置</button>
+          <button class="settings-item" id="btn-integrations" data-i18n="integrations">邮箱与集成</button>
         </div>
       </div>
       <button class="btn btn-sm" id="btn-import-ppt" data-i18n="importPpt" style="background:var(--accent-gradient);color:#fff;border:none">导入PPT数据</button>
@@ -1069,6 +1097,14 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       <input type="date" id="f-to">
     </div>
     <div>
+      <label data-i18n="remarkDateFrom">备注开始</label>
+      <input type="date" id="f-remark-from">
+    </div>
+    <div>
+      <label data-i18n="remarkDateTo">备注结束</label>
+      <input type="date" id="f-remark-to">
+    </div>
+    <div>
       <label data-i18n="keyword">关键词</label>
       <input type="search" id="f-keyword" placeholder="">
     </div>
@@ -1142,6 +1178,23 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     <button type="button" class="player-arrow" id="player-next" title="下一页 (→)">›</button>
   </div>
   <div class="player-hint" data-i18n="playerHint">← → 切换页 · Esc 退出 · 虚线框内容可直接编辑</div>
+</div>
+
+<!-- 集成（Pipedream Connect）弹窗 -->
+<div class="modal-mask" id="modal-integrations">
+  <div class="modal" style="max-width:560px">
+    <h3 data-i18n="integrations">邮箱与集成</h3>
+    <p class="modal-hint" data-i18n="integrationsHint">通过 Pipedream Connect 授权 Outlook 等账号。授权凭据保存在 Pipedream，不经过本页面。</p>
+    <div id="pd-notice"></div>
+    <div class="pd-list" id="pd-account-list"></div>
+    <div class="pd-actions">
+      <button class="btn btn-primary btn-sm" id="btn-pd-connect" data-i18n="pdConnect">连接 Outlook</button>
+      <button class="btn btn-sm" id="btn-pd-refresh" data-i18n="pdRefresh">刷新</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" data-modal-close data-i18n="close">关闭</button>
+    </div>
+  </div>
 </div>
 
 <!-- 状态设置弹窗 -->
@@ -1438,7 +1491,21 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       categoryAutoHint: '自动取自异常类型，点击可自行输入',
       editLog: '编辑记录', logCreate: '创建了该记录', logEmpty: '暂无编辑记录', lastEdit: '最近编辑',
       fieldIeReqStatus: 'IE Req状态', fieldFsDate: 'FS日期', fieldDevDate: 'DEV日期',
-      fieldFtDate: 'FT日期', fieldDeadlineStatus: 'Deadline状态'
+      fieldFtDate: 'FT日期', fieldDeadlineStatus: 'Deadline状态',
+      remarkDateFrom: '备注开始', remarkDateTo: '备注结束',
+      integrations: '邮箱与集成',
+      integrationsHint: '通过 Pipedream Connect 授权 Outlook 等账号。授权凭据保存在 Pipedream，不经过本页面。',
+      pdRefresh: '刷新',
+      pdConnect: '连接 Outlook',
+      pdDisconnect: '断开',
+      pdNoAccounts: '还没有连接的账号',
+      pdNotConfigured: '尚未配置后端中转地址（PD_CONNECT.endpoint），暂时无法连接。',
+      pdConnected: '正常',
+      pdUnhealthy: '需要重新授权',
+      pdOpened: '已打开授权窗口，完成后会自动刷新…',
+      pdFailed: '调用失败',
+      pdDisconnectConfirm: '确定断开该账号？已连接的凭据会被删除。',
+      pdDisconnected: '已断开'
     },
     en: {
       appTitle: 'Factory Feedback Issue Tracker',
@@ -1544,14 +1611,28 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       categoryAutoHint: 'Auto-filled from issue type. Click to type your own.',
       editLog: 'Edit History', logCreate: 'Created this record', logEmpty: 'No edits yet', lastEdit: 'Last edited',
       fieldIeReqStatus: 'IE Req Status', fieldFsDate: 'FS Date', fieldDevDate: 'DEV Date',
-      fieldFtDate: 'FT Date', fieldDeadlineStatus: 'Deadline Status'
+      fieldFtDate: 'FT Date', fieldDeadlineStatus: 'Deadline Status',
+      remarkDateFrom: 'Remarks from', remarkDateTo: 'Remarks to',
+      integrations: 'Email & Integrations',
+      integrationsHint: 'Authorize Outlook and other accounts via Pipedream Connect. Credentials are stored by Pipedream, never by this page.',
+      pdRefresh: 'Refresh',
+      pdConnect: 'Connect Outlook',
+      pdDisconnect: 'Disconnect',
+      pdNoAccounts: 'No connected accounts yet',
+      pdNotConfigured: 'Backend relay URL (PD_CONNECT.endpoint) is not configured yet.',
+      pdConnected: 'Healthy',
+      pdUnhealthy: 'Needs re-auth',
+      pdOpened: 'Authorization window opened. The list refreshes automatically.',
+      pdFailed: 'Request failed',
+      pdDisconnectConfirm: 'Disconnect this account? Its stored credentials will be deleted.',
+      pdDisconnected: 'Disconnected'
     }
   };
 
   var lang = localStorage.getItem(KEYS.lang) || 'zh';
   var state = {
     issues: [], statuses: [], fuStatuses: [], types: [],
-    filters: { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false },
+    filters: { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false, remarkFrom:'', remarkTo:'' },
     view: 'card',
     editingId: null,
     expandedRemarks: {},
@@ -2825,6 +2906,10 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     var fromTs = f.from ? new Date(f.from + 'T00:00').getTime() : -Infinity;
     var toTs = f.to ? new Date(f.to + 'T23:59:59').getTime() : Infinity;
     var kw = (f.keyword || '').toLowerCase().trim();
+    var hasRmkFrom = !!f.remarkFrom;
+    var hasRmkTo = !!f.remarkTo;
+    var rmkFromTs = hasRmkFrom ? new Date(f.remarkFrom + 'T00:00').getTime() : -Infinity;
+    var rmkToTs = hasRmkTo ? new Date(f.remarkTo + 'T23:59:59').getTime() : Infinity;
     return boardIssues().filter(function (i) {
       if (f.customer && i.customer !== f.customer) return false;
       if (f.type && i.typeId !== f.type) return false;
@@ -2834,6 +2919,17 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
       if (f.isdPic && !(i.followUp && i.followUp.isdPic && String(i.followUp.isdPic).toLowerCase().indexOf(String(f.isdPic).toLowerCase()) !== -1)) return false;
       var ts = new Date(i.occurredAt).getTime();
       if (ts < fromTs || ts > toTs) return false;
+      // 备注时间筛选：该条记录任意一条备注落在指定区间内即命中（支持单边）
+      if (hasRmkFrom || hasRmkTo) {
+        var remarks = i.remarks || [];
+        var hit = false;
+        for (var ri = 0; ri < remarks.length; ri++) {
+          var rts = remarks[ri].createdAt;
+          if (!rts) continue;
+          if ((!hasRmkFrom || rts >= rmkFromTs) && (!hasRmkTo || rts <= rmkToTs)) { hit = true; break; }
+        }
+        if (!hit) return false;
+      }
       if (kw && String(i.description || '').toLowerCase().indexOf(kw) === -1) return false;
       if (f.hideResolved) {
         var st = getStatusById(i.status);
@@ -2849,7 +2945,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
 
   function hasFilter() {
     var f = state.filters;
-    return !!(f.customer || f.type || f.level || f.status || f.iePic || f.isdPic || f.from || f.to || f.keyword || f.hideResolved);
+    return !!(f.customer || f.type || f.level || f.status || f.iePic || f.isdPic || f.from || f.to || f.keyword || f.hideResolved || f.remarkFrom || f.remarkTo);
   }
 
   function renderFilterSummary() {
@@ -2862,6 +2958,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     if (f.iePic) chips.push(t('fieldIePic') + ':' + f.iePic);
     if (f.isdPic) chips.push(t('fieldIsdPic') + ':' + f.isdPic);
     if (f.from || f.to) chips.push((f.from || '...') + ' ~ ' + (f.to || '...'));
+    if (f.remarkFrom || f.remarkTo) chips.push(t('remarks') + ':' + (f.remarkFrom || '...') + ' ~ ' + (f.remarkTo || '...'));
     if (f.keyword) chips.push('"' + f.keyword + '"');
     if (f.hideResolved) chips.push(t('hideResolved'));
     if (!chips.length) chips.push(t('all'));
@@ -3087,7 +3184,7 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
           if (tpCat) setFilter = { key: 'type', val: tpCat.id };
         }
         if (setFilter) {
-          state.filters = { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false };
+          state.filters = { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false, remarkFrom:'', remarkTo:'' };
           state.filters[setFilter.key] = setFilter.val;
           safeSave(KEYS.filters, state.filters);
         }
@@ -4903,6 +5000,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   bindFilter('f-isd-pic', 'isdPic');
   bindFilter('f-from', 'from');
   bindFilter('f-to', 'to');
+  bindFilter('f-remark-from', 'remarkFrom');
+  bindFilter('f-remark-to', 'remarkTo');
   bindFilter('f-hide-resolved', 'hideResolved', 'checkbox');
 
   document.getElementById('f-keyword').addEventListener('input', function () {
@@ -4912,8 +5011,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
   });
 
   document.getElementById('btn-clear-filter').addEventListener('click', function () {
-    state.filters = { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false };
-    ['f-customer','f-type','f-level','f-status','f-ie-pic','f-isd-pic','f-from','f-to'].forEach(function (id) { document.getElementById(id).value = ''; });
+    state.filters = { customer:'', type:'', level:'', status:'', iePic:'', isdPic:'', from:'', to:'', keyword:'', hideResolved:false, remarkFrom:'', remarkTo:'' };
+    ['f-customer','f-type','f-level','f-status','f-ie-pic','f-isd-pic','f-from','f-to','f-remark-from','f-remark-to'].forEach(function (id) { document.getElementById(id).value = ''; });
     document.getElementById('f-keyword').value = '';
     document.getElementById('f-hide-resolved').checked = false;
     safeSave(KEYS.filters, state.filters);
@@ -4956,6 +5055,135 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
    * ========================================================= */
   function openModal(id) { document.getElementById(id).classList.add('show'); }
   function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+  /* =========================================================
+   * 集成（Pipedream Connect）
+   * 前端只调用后端中转，client_id / client_secret 永不进入本页面
+   * ========================================================= */
+  var PD_CONNECT = {
+    projectId: 'proj_ZpsV2Ba',
+    environment: 'production',
+    // 部署后端中转后填入完整地址，例如：
+    // https://<project-ref>.supabase.co/functions/v1/pd-connect
+    endpoint: '',
+    // 团队共用同一个外部用户 ID，已连接的账号全员共享
+    externalUserId: 'flap-team',
+    app: { slug: 'microsoft_outlook', label: 'Outlook' }
+  };
+
+  var pdAccounts = [];
+  var pdBusy = false;
+
+  function pdConfigured() { return !!PD_CONNECT.endpoint; }
+
+  async function pdRequest(action, extra) {
+    var payload = { action: action, external_user_id: PD_CONNECT.externalUserId };
+    if (extra) { Object.keys(extra).forEach(function (k) { payload[k] = extra[k]; }); }
+    var res = await fetch(PD_CONNECT.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-app-pass': 'FLAP2026' },
+      body: JSON.stringify(payload)
+    });
+    var json = null;
+    try { json = await res.json(); } catch (e) { /* 非 JSON 响应 */ }
+    if (!res.ok || (json && json.error)) {
+      throw new Error((json && json.error) || ('HTTP ' + res.status));
+    }
+    return json || {};
+  }
+
+  function pdRender() {
+    var list = document.getElementById('pd-account-list');
+    var notice = document.getElementById('pd-notice');
+    if (!list || !notice) return;
+    if (!pdConfigured()) {
+      notice.innerHTML = '<div class="pd-hint">' + escapeHtml(t('pdNotConfigured')) + '</div>';
+      list.innerHTML = '';
+      return;
+    }
+    notice.innerHTML = '';
+    if (!pdAccounts.length) {
+      list.innerHTML = '<div class="pd-empty">' + escapeHtml(t('pdNoAccounts')) + '</div>';
+      return;
+    }
+    list.innerHTML = pdAccounts.map(function (a) {
+      var healthy = a.healthy !== false && !a.dead;
+      var appName = (a.app && a.app.name) || PD_CONNECT.app.label;
+      var sub = appName;
+      if (a.name) sub += ' · ' + a.name;
+      if (a.error) sub += ' · ' + a.error;
+      return '<div class="pd-row">' +
+          '<div class="pd-main">' +
+            '<div class="pd-name">' + escapeHtml(appName) + '</div>' +
+            '<div class="pd-sub">' + escapeHtml(sub) + '</div>' +
+          '</div>' +
+          '<span class="pd-badge ' + (healthy ? 'ok' : 'bad') + '">' +
+            escapeHtml(healthy ? t('pdConnected') : t('pdUnhealthy')) + '</span>' +
+          '<button class="btn btn-sm btn-danger" data-pd-disconnect="' + escapeHtml(a.id) + '">' +
+            escapeHtml(t('pdDisconnect')) + '</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  async function pdRefresh(silent) {
+    if (!pdConfigured()) { pdRender(); return; }
+    try {
+      var r = await pdRequest('accounts');
+      pdAccounts = Array.isArray(r.accounts) ? r.accounts : [];
+      pdRender();
+    } catch (e) {
+      if (!silent) toast(t('pdFailed') + ': ' + e.message);
+      var notice = document.getElementById('pd-notice');
+      if (notice) notice.innerHTML = '<div class="pd-hint">' + escapeHtml(t('pdFailed') + ': ' + e.message) + '</div>';
+    }
+  }
+
+  async function pdConnect() {
+    if (!pdConfigured()) { toast(t('pdNotConfigured')); return; }
+    if (pdBusy) return;
+    pdBusy = true;
+    try {
+      var r = await pdRequest('link', { app: PD_CONNECT.app.slug });
+      if (!r.connect_link_url) throw new Error('no connect_link_url');
+      var w = window.open(r.connect_link_url, 'pd-connect', 'width=640,height=780');
+      if (!w) { pdBusy = false; toast(t('pdFailed') + ': popup blocked'); return; }
+      toast(t('pdOpened'));
+      // 授权完成后自动刷新账号列表
+      var tries = 0;
+      var timer = setInterval(function () {
+        tries++;
+        if (tries > 15 || w.closed) { clearInterval(timer); pdBusy = false; }
+        pdRefresh(true);
+      }, 2000);
+    } catch (e) {
+      pdBusy = false;
+      toast(t('pdFailed') + ': ' + e.message);
+    }
+  }
+
+  document.getElementById('btn-integrations').addEventListener('click', function () {
+    openModal('modal-integrations');
+    pdRefresh(true);
+  });
+  document.getElementById('btn-pd-connect').addEventListener('click', pdConnect);
+  document.getElementById('btn-pd-refresh').addEventListener('click', function () { pdRefresh(false); });
+
+  document.getElementById('pd-account-list').addEventListener('click', async function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-pd-disconnect]') : null;
+    if (!btn) return;
+    var id = btn.getAttribute('data-pd-disconnect');
+    if (!window.confirm(t('pdDisconnectConfirm'))) return;
+    btn.disabled = true;
+    try {
+      await pdRequest('disconnect', { account_id: id });
+      pdAccounts = pdAccounts.filter(function (a) { return a.id !== id; });
+      pdRender();
+      toast(t('pdDisconnected'));
+    } catch (err) {
+      btn.disabled = false;
+      toast(t('pdFailed') + ': ' + err.message);
+    }
+  });
 
   document.getElementById('btn-status-settings').addEventListener('click', function () {
     renderStatusList();
@@ -5565,6 +5793,8 @@ select[data-fu="ieReqStatus"], select[data-fu="fsStatus"], select[data-fu="devSt
     document.getElementById('f-level').value = state.filters.level || '';
     document.getElementById('f-from').value = state.filters.from || '';
     document.getElementById('f-to').value = state.filters.to || '';
+    document.getElementById('f-remark-from').value = state.filters.remarkFrom || '';
+    document.getElementById('f-remark-to').value = state.filters.remarkTo || '';
     document.getElementById('f-keyword').value = state.filters.keyword || '';
     document.getElementById('f-hide-resolved').checked = !!state.filters.hideResolved;
     resetForm();
