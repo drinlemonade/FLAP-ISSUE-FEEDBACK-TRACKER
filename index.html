@@ -1106,7 +1106,7 @@ html[data-theme="dark"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14);
     </div>
     <div>
       <label data-i18n="keyword">关键词</label>
-      <input type="search" id="f-keyword" placeholder="">
+      <input type="search" id="f-keyword" data-i18n-placeholder="keywordPh" placeholder="搜索异常描述">
     </div>
     <div>
       <label>&nbsp;</label>
@@ -1431,6 +1431,7 @@ html[data-theme="dark"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14);
       editZh: '修正中文', editZhPrompt: '请输入准确的中文描述（留空可清除修正，恢复机翻）：',
       customer: '工厂', type: '异常类型', level: '等级', status: '状态',
       dateFrom: '开始日期', dateTo: '结束日期', keyword: '关键词', hideResolved: '隐藏已处理',
+      keywordPh: '搜索异常描述（支持中英文，空格分隔多词）',
       currentFilter: '当前筛选：', clearFilter: '清除筛选',
       all: '全部', newIssue: '新建异常记录',
       customer2: '工厂名称', description: '异常描述', level2: '异常等级', occurredAt: '发生时间',
@@ -1551,6 +1552,7 @@ html[data-theme="dark"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14);
       editZh: 'Fix CN', editZhPrompt: 'Enter accurate Chinese description (leave empty to clear override & restore MT):',
       customer: 'Factory', type: 'Type', level: 'Level', status: 'Status',
       dateFrom: 'From', dateTo: 'To', keyword: 'Keyword', hideResolved: 'Hide resolved',
+      keywordPh: 'Search description (multi-word supported)',
       currentFilter: 'Current filter:', clearFilter: 'Clear',
       all: 'All', newIssue: 'New Issue',
       customer2: 'Factory Name', description: 'Description', level2: 'Level', occurredAt: 'Occurred At',
@@ -2901,11 +2903,32 @@ html[data-theme="dark"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14);
       return (i.boardId || DEFAULT_BOARD_ID) === ACTIVE_BOARD;
     });
   }
+  // 关键词归一化：全角转半角、标点转空格、NBSP/全角空格转普通空格、转小写、去首尾空白
+  function normKw(s) {
+    return String(s == null ? '' : s)
+      .replace(/[\uFF01-\uFF5E]/g, function (c) {
+        return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+      })
+      .replace(/[,;:!?()\[\]{}、。·—…《》【】“”‘’"'`]/g, ' ')
+      .replace(/[\u3000\u00A0]/g, ' ')
+      .toLowerCase()
+      .trim();
+  }
+  // 关键词匹配：英文原文 + 人工中文修正都参与；空格分隔的多词为 AND 关系
+  function matchKeyword(i, rawKw) {
+    var kw = normKw(rawKw);
+    if (!kw) return true;
+    var hay = normKw((i.description || '') + ' \n ' + (i.descriptionZh || ''));
+    var tokens = kw.split(/\s+/).filter(Boolean);
+    for (var t = 0; t < tokens.length; t++) {
+      if (hay.indexOf(tokens[t]) === -1) return false;
+    }
+    return true;
+  }
   function getFiltered() {
     var f = state.filters;
     var fromTs = f.from ? new Date(f.from + 'T00:00').getTime() : -Infinity;
     var toTs = f.to ? new Date(f.to + 'T23:59:59').getTime() : Infinity;
-    var kw = (f.keyword || '').toLowerCase().trim();
     var hasRmkFrom = !!f.remarkFrom;
     var hasRmkTo = !!f.remarkTo;
     var rmkFromTs = hasRmkFrom ? new Date(f.remarkFrom + 'T00:00').getTime() : -Infinity;
@@ -2930,7 +2953,7 @@ html[data-theme="dark"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14);
         }
         if (!hit) return false;
       }
-      if (kw && String(i.description || '').toLowerCase().indexOf(kw) === -1) return false;
+      if (!matchKeyword(i, f.keyword)) return false;
       if (f.hideResolved) {
         var st = getStatusById(i.status);
         if (st && st.isResolvedLike) return false;
@@ -5004,10 +5027,12 @@ html[data-theme="dark"] { --pd-ok: #4ade80; --pd-ok-bg: rgba(74, 222, 128, .14);
   bindFilter('f-remark-to', 'remarkTo');
   bindFilter('f-hide-resolved', 'hideResolved', 'checkbox');
 
+  var kwRenderTimer = null;
   document.getElementById('f-keyword').addEventListener('input', function () {
     state.filters.keyword = this.value;
     safeSave(KEYS.filters, state.filters);
-    render();
+    clearTimeout(kwRenderTimer);
+    kwRenderTimer = setTimeout(render, 200);
   });
 
   document.getElementById('btn-clear-filter').addEventListener('click', function () {
